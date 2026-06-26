@@ -1,0 +1,21 @@
+services:
+  db:
+    image: postgis/postgis:16-3.4
+    container_name: crime-watch-postgis
+    environment:
+      POSTGRES_DB: crime_watch
+      POSTGRES_USER: crime_watch
+      POSTGRES_PASSWORD: crime_watch
+    ports:
+      - "5432:5432"
+    volumes:
+      - crime_watch_pgdata:/var/lib/postgresql/data
+      - ./infra/docker/init.sql:/docker-entrypoint-initdb.d/01-init.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U crime_watch -d crime_watch"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  crime_watch_pgdata:
