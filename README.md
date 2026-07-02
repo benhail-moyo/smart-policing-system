@@ -1,8 +1,7 @@
 # Crime-Watch
 
-> AI-driven spatiotemporal crime analytics and patrol optimization platform  
-> Midlands State University — BSc Computer Science Dissertation  
-> **Authors:** Benhail Moyo (R2312487F) & Oslea Mukuhlani (R252775F)
+> AI-driven spatiotemporal crime analytics and patrol optimization platform   
+> **Author:** Benhail Moyo
 
 ---
 
@@ -115,7 +114,4 @@ All crime clustering (DBSCAN), heatmap generation (KDE), and route storage requi
 
 ---
 
-## References
-[1] Mugari & Chakanyuka, "Intelligence-led policing in Zimbabwe," *JACPR*, 2024  
-[2] Alikhademi et al., "Review of Predictive Policing," *IEEE Access*, 2022  
-[3] Zimbabwe Cyber and Data Protection Act [Chapter 12:07], 2021
+
