@@ -1,0 +1,22 @@
+[
+  {"id": 1, "text": "A man with a firearm robbed the CBZ branch on Samora Machel Ave.", "expected_severity": "HIGH", "expected_category": "robbery", "language": "en", "notes": "Armed robbery, English"},
+  {"id": 2, "text": "Munhu akapamba mota yangu paMbare neBanga.", "expected_severity": "HIGH", "expected_category": "robbery", "language": "sn", "notes": "Armed robbery, Shona"},
+  {"id": 3, "text": "There was a loud fight and someone was stabbed outside the market.", "expected_severity": "HIGH", "expected_category": "assault", "language": "en", "notes": "Assault with weapon"},
+  {"id": 4, "text": "Ngisize! Umuntu ubephanga esitolo.", "expected_severity": "HIGH", "expected_category": "robbery", "language": "nd", "notes": "Robbery, Ndebele"},
+  {"id": 5, "text": "Suspicious person loitering near the school, taking photos of students.", "expected_severity": "LOW", "expected_category": "suspicious_activity", "language": "en", "notes": "Low"},
+  {"id": 6, "text": "Pane munhu anenge achikumbira mari panzvimbo yeruzhinji, asi haasi kuita chinhu chakaipa.", "expected_severity": "LOW", "expected_category": "suspicious_activity", "language": "sn", "notes": "Low"},
+  {"id": 7, "text": "Report of small-scale drug dealing behind the nightclub.", "expected_severity": "MEDIUM", "expected_category": "drug_offence", "language": "en", "notes": "Medium"},
+  {"id": 8, "text": "Someone broke into my house last night and stole electronics.", "expected_severity": "MEDIUM", "expected_category": "burglary", "language": "en", "notes": "Property crime"},
+  {"id": 9, "text": "Ndima yekuparadza zvinhu paimba, vakabiwa zvinhu zvakawanda.", "expected_severity": "MEDIUM", "expected_category": "burglary", "language": "sn", "notes": "Burglary"},
+  {"id": 10, "text": "Noise complaint: loud party disturbing neighbours.", "expected_severity": "LOW", "expected_category": "noise_complaint", "language": "en", "notes": "Low"},
+  {"id": 11, "text": "A woman reported being threatened by her ex-partner.", "expected_severity": "MEDIUM", "expected_category": "domestic_dispute", "language": "en", "notes": "Domestic"},
+  {"id": 12, "text": "Munhu ari kutyora gedhi ndokubira mabhegi emumugwagwa.", "expected_severity": "MEDIUM", "expected_category": "theft", "language": "sn", "notes": "Theft"},
+  {"id": 13, "text": "There was a fraud attempt at an ATM, someone skimming cards.", "expected_severity": "MEDIUM", "expected_category": "fraud", "language": "en", "notes": "Fraud"},
+  {"id": 14, "text": "Someone was pushed and injured during an argument.", "expected_severity": "MEDIUM", "expected_category": "assault", "language": "en", "notes": "Assault"},
+  {"id": 15, "text": "Umlenze uphukile emponjeni ngenxa yokulwa.", "expected_severity": "MEDIUM", "expected_category": "assault", "language": "nd", "notes": "Assault Ndebele"},
+  {"id": 16, "text": "Found a stolen phone on the bus — possible pickpocketing.", "expected_severity": "LOW", "expected_category": "theft", "language": "en", "notes": "Theft low"},
+  {"id": 17, "text": "A group was vandalising a wall in the late hours.", "expected_severity": "LOW", "expected_category": "vandalism", "language": "en", "notes": "Low"},
+  {"id": 18, "text": "Person selling drugs near the park repeatedly.", "expected_severity": "MEDIUM", "expected_category": "drug_offence", "language": "en", "notes": "Medium"},
+  {"id": 19, "text": "Man robbed my phone at knife point in the bus station.", "expected_severity": "HIGH", "expected_category": "robbery", "language": "en", "notes": "High"},
+  {"id": 20, "text": "Ndibatsireiwo, munhu arikurwisa murume wangu.", "expected_severity": "HIGH", "expected_category": "assault", "language": "sn", "notes": "High domestic"}
+]
