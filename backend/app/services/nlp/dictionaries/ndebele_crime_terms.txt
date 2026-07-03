@@ -1,30 +1,50 @@
+# Ndebele crime and emergency terms — used for language detection
+# One term per line, lowercase.
+# ── Violence / assault ────────────────────────────────────────────────────
 ukubetha
 ukulimaza
 ukubulala
 ngozi
+ukushaywa
+ukulimala
+ukuhlukumeza
+ukudlwengula
+ukuxhaphaza
+ukubulala nabantu
+ukuguqulwa
+ukuhlukunyezwa
+ukudlwengula kabuhlungu
+ukuphonseka
+# ── Weapons ───────────────────────────────────────────────────────────────
 isibhamu
 umkhonto
 inkemba
 isikhali
+umkhonto wezinsimbi
+# ── Drugs ─────────────────────────────────────────────────────────────────
 izidakamizwa
 insangu
+ukudayisa izidakamizwa
+# ── Urgency / emergency ───────────────────────────────────────────────────
 ngisize
 amapolisa
 shesha
 msindo
+sawubona
+ngicela
+amaphoyisa
+ukufuna usizo
+ukumbiza
+# ── Property crime ────────────────────────────────────────────────────────
 imoto
 imali
 indlu
 isango
 ukweba
 ukuphanga
-ukuhlukumeza
-ukudlwengula
-ukuxhaphaza
-ukuphanga_imoto
+ukuphanga imoto
 ukubhidliza
-ukulimala
-ukuphanga_izinto
+ukuphanga izinto
 ukuphoqa
 ukugenca
 ukudayisa
@@ -32,23 +52,30 @@ ukubanjwa
 ukubamba
 ukumpetha
 ukuduka
-ukubulala_nabantu
 ukubekwa
-ukuphonseka
-ukushaywa
-ukuguqulwa
-ukuhlukunyezwa
-ukuphanga_izindlu
-ukudayisa_izidakamizwa
+ukuphanga izindlu
 ukumbiwa
-ukuphanga_bhegi
-ukubamba_isikhali
-ukufuna_usizo
-ukumbiza
+ukuphanga bhegi
+ukubamba isikhali
 ukuyekethisa
 ukunyanyisa
 ukungena
 ukupenga
-ukudlwengula_kabuhlungu
 ukugqekeza
 ukujova
+# ── People / identity ─────────────────────────────────────────────────────
+umuntu
+abantu
+umfazi
+indoda
+izingane
+# ── Locations / contexts ──────────────────────────────────────────────────
+ekhaya
+emgwaqweni
+esitolo
+emsebenzini
+edolobheni
+# ── Status / reporting ────────────────────────────────────────────────────
+ukubiwa kwemali
+ukubikwa
+ukushintsha

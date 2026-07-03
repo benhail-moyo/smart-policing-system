@@ -1,60 +1,90 @@
+# Shona crime and emergency terms — used for language detection
+# One term per line, lowercase.
+# ── Violence / assault ─────────────────────────────────────────────────────
 ndaona
 akandirova
 vakandipamba
 akapindura
 ari kutya
+kurwiswa
+kupondwa
+kurohwa
+kurwisana
+kupondana
+kubatirwa
+kubvutwa
+kupfurwa
+kubatwa neboka
+muviri wakuvadzwa
+kutema
+kuvengana
+kupokana
+# ── Weapons ───────────────────────────────────────────────────────────────
 banga
 pfuti
 chando
 mupanga
+pfumo
+chombo
+# ── Drugs ─────────────────────────────────────────────────────────────────
 mbanje
 zvinodhaka
 kudhunga
+kutengesa zvinodhaka
+# ── Urgency / emergency ───────────────────────────────────────────────────
 batsira
 ndibatsireiwo
 kukurumidza
 police
+mapurisa
+ndapota
+mhoro
+ambulance
+chipatara
+# ── Property crime ────────────────────────────────────────────────────────
 buri
 gedhi
 mota
 mari
 bhegi
-murume
-mukadzi
-vana
-vaviri
 kubiwa
 kubiridzirwa
 kupamba
 kuputswa
 kubira
 kuvharwa
-kupfurwa
-kubatwa
-kurwiswa
-kupondwa
-kuba
 kuvhiringidzwa
-kurwisana
 kukurudzira
 kusungwa
-kusungwa_nechiito
 kuvhiringidza
 kubvuta
-kuputswa_kwemba
+kuputswa kwemba
 kupwanya
 kuparadzwa
-kurohwa
 kutyorwa
 kupomerwa
-kubatwa_neboka
-muviri_wakuvadzwa
-shurugwi
-kubereka
-kutema
-kuvengana
-kupokana
-kutengesa_zvinodhaka
 kukanganiswa
 kutiza
-kupomerwa_nebani
+kupomerwa nebani
+kuba
+# ── People / identity ─────────────────────────────────────────────────────
+murume
+mukadzi
+vana
+vaviri
+munhu
+vanhu
+mwana
+# ── Locations / contexts ──────────────────────────────────────────────────
+imba
+mugwagwa
+nzira
+musika
+bhasikoro
+bhazi
+# ── Status / reporting ────────────────────────────────────────────────────
+kubereka
+shurugwi
+kusungwa nechiito
+kubiwa kwemari
+kutambura
