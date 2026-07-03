@@ -22,7 +22,7 @@ ARCHITECTURE DECISION — Why two algorithms?
 """
 import time
 import logging
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import List, Optional
 
 from app.models.models import Hotspot, PatrolRoute
@@ -42,6 +42,8 @@ class RouteResult:
     hotspots_covered: int
     computation_time_ms: float
     hotspot_ids: list
+    route_explanation: list = field(default_factory=list)
+    convergence_file: Optional[str] = None
 
 
 class RouteEngine:
@@ -49,8 +51,10 @@ class RouteEngine:
     Orchestrator: takes hotspots, runs both algorithms, saves results.
     """
 
-    # Fuel consumption estimate: average ZRP patrol vehicle
-    FUEL_CONSUMPTION_L_PER_KM = 0.12  # 12L/100km
+    # Fuel model for urban stop-start patrol conditions.
+    FUEL_CONSUMPTION_L_PER_KM_URBAN = 0.15   # 15L/100km
+    FUEL_CONSUMPTION_L_PER_KM_HIGHWAY = 0.10  # Documented for future mixed routing.
+    FUEL_CONSUMPTION_L_PER_KM = FUEL_CONSUMPTION_L_PER_KM_URBAN
     AVERAGE_SPEED_KMH = 40            # Urban patrol speed
 
     def optimize(
@@ -70,7 +74,16 @@ class RouteEngine:
         Returns:
             List of RouteResult objects (1 or 2 depending on algorithm param).
         """
-        hotspots = db.session.query(Hotspot).filter(Hotspot.id.in_(hotspot_ids)).all()
+        algorithm = str(algorithm or "both").lower()
+        if algorithm not in ("dijkstra", "genetic", "both"):
+            raise ValueError("algorithm must be one of: dijkstra, genetic, both")
+
+        requested_ids = [int(hotspot_id) for hotspot_id in hotspot_ids]
+        hotspots_by_id = {
+            hotspot.id: hotspot
+            for hotspot in db.session.query(Hotspot).filter(Hotspot.id.in_(requested_ids)).all()
+        }
+        hotspots = [hotspots_by_id[hotspot_id] for hotspot_id in requested_ids if hotspot_id in hotspots_by_id]
         if not hotspots:
             raise ValueError("No valid hotspots found for provided IDs")
 
@@ -92,12 +105,20 @@ class RouteEngine:
 
         return results
 
-    def compare_algorithms(self, hotspot_ids: List[int]) -> dict:
+    def compare_algorithms(
+        self,
+        hotspot_ids: List[int],
+        start_location: Optional[tuple] = None,
+    ) -> dict:
         """
         Runs both algorithms and returns a structured comparison dict.
         This output maps directly to your dissertation results table.
         """
-        results = self.optimize(hotspot_ids, algorithm="both")
+        results = self.optimize(
+            hotspot_ids,
+            algorithm="both",
+            start_location=start_location,
+        )
         dijkstra = next((r for r in results if r.algorithm == "dijkstra"), None)
         genetic = next((r for r in results if r.algorithm == "genetic"), None)
 
@@ -108,27 +129,39 @@ class RouteEngine:
             (dijkstra.estimated_fuel_litres - genetic.estimated_fuel_litres)
             / dijkstra.estimated_fuel_litres * 100
         ) if dijkstra.estimated_fuel_litres > 0 else 0
+        distance_saving_pct = (
+            (dijkstra.total_distance_km - genetic.total_distance_km)
+            / dijkstra.total_distance_km * 100
+        ) if dijkstra.total_distance_km > 0 else 0
+        speed_diff = genetic.computation_time_ms - dijkstra.computation_time_ms
+        verdict = (
+            f"GA achieves {abs(fuel_saving_pct):.1f}% "
+            f"{'fuel reduction' if fuel_saving_pct > 0 else 'fuel increase'} "
+            f"vs Dijkstra, at {max(speed_diff, 0):.0f}ms additional computation time."
+        )
 
         return {
             "dijkstra": self._result_to_dict(dijkstra),
             "genetic": self._result_to_dict(genetic),
             "comparison": {
                 "fuel_saving_genetic_vs_dijkstra_pct": round(fuel_saving_pct, 2),
+                "distance_saving_pct": round(distance_saving_pct, 2),
                 "speed_advantage_dijkstra_ms": round(
-                    genetic.computation_time_ms - dijkstra.computation_time_ms, 2
+                    speed_diff, 2
                 ),
                 "coverage_advantage_genetic": (
                     genetic.hotspots_covered - dijkstra.hotspots_covered
                 ),
+                "verdict": verdict,
             },
         }
 
     def _run_dijkstra(self, waypoints: list, hotspots: List[Hotspot]) -> RouteResult:
         from app.services.routing.dijkstra_solver import DijkstraSolver
-        start = time.time()
+        start = time.perf_counter()
         solver = DijkstraSolver(waypoints)
         route = solver.solve()
-        elapsed_ms = (time.time() - start) * 1000
+        elapsed_ms = (time.perf_counter() - start) * 1000
 
         distance = self._calculate_total_distance(route)
         return RouteResult(
@@ -140,22 +173,26 @@ class RouteEngine:
             hotspots_covered=len(hotspots),
             computation_time_ms=elapsed_ms,
             hotspot_ids=[h.id for h in hotspots],
+            route_explanation=solver.get_tour_explanation(),
         )
 
     def _run_genetic(self, waypoints: list, hotspots: List[Hotspot]) -> RouteResult:
         from app.services.routing.genetic_solver import GeneticSolver
         from flask import current_app
-        start = time.time()
+        start = time.perf_counter()
+        weights = [h.risk_score for h in hotspots]
+        if len(waypoints) > len(hotspots):
+            weights = [0.0] + weights
         solver = GeneticSolver(
             waypoints=waypoints,
-            hotspot_weights=[h.risk_score for h in hotspots],
+            hotspot_weights=weights,
             pop_size=current_app.config.get("GA_POPULATION_SIZE", 100),
             generations=current_app.config.get("GA_GENERATIONS", 200),
             mutation_rate=current_app.config.get("GA_MUTATION_RATE", 0.02),
             crossover_rate=current_app.config.get("GA_CROSSOVER_RATE", 0.8),
         )
         route = solver.solve()
-        elapsed_ms = (time.time() - start) * 1000
+        elapsed_ms = (time.perf_counter() - start) * 1000
 
         distance = self._calculate_total_distance(route)
         return RouteResult(
@@ -167,6 +204,11 @@ class RouteEngine:
             hotspots_covered=len(hotspots),
             computation_time_ms=elapsed_ms,
             hotspot_ids=[h.id for h in hotspots],
+            route_explanation=[
+                {"step": step + 1, "lat": point[0], "lng": point[1]}
+                for step, point in enumerate(route)
+            ],
+            convergence_file=solver.save_convergence_data(),
         )
 
     def _hotspots_to_waypoints(self, hotspots: List[Hotspot]) -> list:
@@ -195,10 +237,12 @@ class RouteEngine:
     def _save_route(self, result: RouteResult):
         from shapely.geometry import LineString
         from geoalchemy2.shape import from_shape
-        line = LineString([(lng, lat) for lat, lng in result.waypoints])
+        line = None
+        if len(result.waypoints) >= 2:
+            line = LineString([(lng, lat) for lat, lng in result.waypoints])
         route = PatrolRoute(
             algorithm=result.algorithm,
-            route_geometry=from_shape(line, srid=4326),
+            route_geometry=from_shape(line, srid=4326) if line else None,
             total_distance_km=result.total_distance_km,
             estimated_fuel_litres=result.estimated_fuel_litres,
             estimated_time_minutes=result.estimated_time_minutes,
@@ -217,6 +261,13 @@ class RouteEngine:
             "estimated_time_minutes": r.estimated_time_minutes,
             "hotspots_covered": r.hotspots_covered,
             "computation_time_ms": r.computation_time_ms,
+            "hotspot_ids": r.hotspot_ids,
+            "waypoints": [
+                {"lat": point[0], "lng": point[1]}
+                for point in r.waypoints
+            ],
+            "route_explanation": r.route_explanation,
+            "convergence_file": r.convergence_file,
         }
 
 
