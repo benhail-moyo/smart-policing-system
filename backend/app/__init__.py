@@ -34,6 +34,11 @@ def create_app(config_name: str = "development") -> Flask:
 
     # ── Initialize extensions ────────────────────────────────────────────────
     db.init_app(app)
+
+    # Import models BEFORE migrate.init_app so Flask-Migrate discovers all tables
+    with app.app_context():
+        from app.models import models  # noqa: F401 — registers models with SQLAlchemy
+
     migrate.init_app(app, db)
     jwt.init_app(app)
     CORS(app, resources={r"/api/*": {"origins": "*"}})  # Tighten in production
