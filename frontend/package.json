@@ -14,8 +14,16 @@
     "vite": "^5.4.0",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
+    "react-router-dom": "^6.26.0",
     "leaflet": "^1.9.4",
+    "react-leaflet": "^4.2.3",
+    "axios": "^1.7.7",
+    "recharts": "^2.12.7",
     "lucide-react": "^0.468.0"
   },
-  "devDependencies": {}
+  "devDependencies": {
+    "tailwindcss": "^3.4.4",
+    "postcss": "^8.4.40",
+    "autoprefixer": "^10.4.20"
+  }
 }
