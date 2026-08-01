@@ -1,7 +1,9 @@
 import { useMemo } from "react";
 import CrimeMap from "../components/map/CrimeMap";
 import { useAppContext } from "../store/AppContext";
+import { buildDashboardDataset } from "../lib/dataset";
 
+const baseDataset = buildDashboardDataset([], [], null);
 const dijkstraRoute = {
   id: "dijkstra",
   label: "Dijkstra",
@@ -9,11 +11,7 @@ const dijkstraRoute = {
   fuelLitres: 3.4,
   timeMinutes: 48,
   computeMs: 124,
-  waypoints: [
-    [-17.8292, 31.0522],
-    [-17.823, 31.058],
-    [-17.818, 31.064],
-  ],
+  waypoints: baseDataset.route.dijkstra.waypoints,
 };
 
 const geneticRoute = {
@@ -23,15 +21,11 @@ const geneticRoute = {
   fuelLitres: 2.7,
   timeMinutes: 54,
   computeMs: 318,
-  waypoints: [
-    [-17.8292, 31.0522],
-    [-17.8215, 31.0625],
-    [-17.8168, 31.069],
-  ],
+  waypoints: baseDataset.route.genetic.waypoints,
 };
 
 export default function PatrolPage() {
-  const { setRoute } = useAppContext();
+  const { setRoute, hotspots, incidents } = useAppContext();
 
   const summary = useMemo(() => {
     const fuelReduction = ((dijkstraRoute.fuelLitres - geneticRoute.fuelLitres) / dijkstraRoute.fuelLitres) * 100;
@@ -80,7 +74,7 @@ export default function PatrolPage() {
       </section>
 
       <div className="map-shell">
-        <CrimeMap hotspots={[]} incidents={[]} patrolRoute={{ dijkstra: dijkstraRoute, genetic: geneticRoute }} />
+        <CrimeMap hotspots={hotspots} incidents={incidents} patrolRoute={{ dijkstra: dijkstraRoute, genetic: geneticRoute }} />
       </div>
     </div>
   );
