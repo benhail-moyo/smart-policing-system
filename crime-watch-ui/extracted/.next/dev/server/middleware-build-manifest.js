@@ -1,0 +1,50 @@
+globalThis.__BUILD_MANIFEST = {
+  "pages": {
+    "/_app": [
+      "static/chunks/01v-_next_dist_compiled_12rc2n-._.js",
+      "static/chunks/01v-_next_dist_shared_lib_06etj7t._.js",
+      "static/chunks/01v-_next_dist_client_09s2fw6._.js",
+      "static/chunks/01v-_next_dist_11~ch26._.js",
+      "static/chunks/01v-_next_app_01ag65r.js",
+      "static/chunks/[next]_entry_page-loader_ts_06o4_9b._.js",
+      "static/chunks/01v-_react-dom_04c1tkd._.js",
+      "static/chunks/01v-_0pk04.4._.js",
+      "static/chunks/[root-of-the-server]__0oo8buc._.js",
+      "static/chunks/crime-watch-ui_extracted_pages__app_07xvfw~._.js",
+      "static/chunks/turbopack-crime-watch-ui_extracted_pages__app_0v5f-nc._.js"
+    ],
+    "/_error": [
+      "static/chunks/01v-_next_dist_compiled_12rc2n-._.js",
+      "static/chunks/01v-_next_dist_shared_lib_0g1r.9c._.js",
+      "static/chunks/01v-_next_dist_client_09s2fw6._.js",
+      "static/chunks/01v-_next_dist_0afs1ik._.js",
+      "static/chunks/[next]_entry_page-loader_ts_0uwoq_s._.js",
+      "static/chunks/01v-_react-dom_04c1tkd._.js",
+      "static/chunks/01v-_0pk04.4._.js",
+      "static/chunks/[root-of-the-server]__0f_uo0w._.js",
+      "static/chunks/crime-watch-ui_extracted_pages__error_07xvfw~._.js",
+      "static/chunks/turbopack-crime-watch-ui_extracted_pages__error_0nj4npc._.js"
+    ]
+  },
+  "devFiles": [],
+  "polyfillFiles": [
+    "static/chunks/01v-_next_dist_build_polyfills_polyfill-nomodule.js"
+  ],
+  "lowPriorityFiles": [
+    "static/development/_buildManifest.js",
+    "static/development/_ssgManifest.js",
+    "static/development/_clientMiddlewareManifest.js"
+  ],
+  "rootMainFiles": [
+    "static/chunks/[turbopack]_browser_dev_hmr-client_hmr-client_ts_0b.84qe._.js",
+    "static/chunks/01v-_next_dist_compiled_next-devtools_index_01ff_tj.js",
+    "static/chunks/01v-_next_dist_compiled_react-dom_0qii.h7._.js",
+    "static/chunks/01v-_next_dist_compiled_react-server-dom-turbopack_03x5h65._.js",
+    "static/chunks/01v-_next_dist_compiled_0g3430~._.js",
+    "static/chunks/01v-_next_dist_client_0upadx~._.js",
+    "static/chunks/01v-_next_dist_0lh1h3e._.js",
+    "static/chunks/01v-_@swc_helpers_cjs_11pbjwj._.js",
+    "static/chunks/crime-watch-ui_extracted_0rqeker._.js",
+    "static/chunks/turbopack-crime-watch-ui_extracted_07s9ti1._.js"
+  ]
+};

@@ -95,8 +95,11 @@ def main():
     app = create_app("development")
 
     with app.app_context():
-        officer = ensure_user("officer@crimewatch.zw", "officer", "Officer1234!")
-        ensure_user("admin@crimewatch.zw", "admin", "Admin1234!")
+        officer = ensure_user("officer@crimewatch.zw",   "officer",   "Officer1234!")
+        ensure_user("admin@crimewatch.zw",               "admin",     "Admin1234!")
+        # UI demo login users (match the frontend quick-access buttons)
+        ensure_user("officer@harare.gov.zw",             "officer",   "password123")
+        ensure_user("community@harare.gov.zw",           "community", "password123")
 
         db.session.query(Incident).filter(
             Incident.raw_text.like("Synthetic Harare GIS seed:%")
