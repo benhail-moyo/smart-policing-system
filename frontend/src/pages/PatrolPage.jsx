@@ -16,50 +16,32 @@ import {
   CheckCircle2, Route, Star,
 } from "lucide-react";
 import CrimeMap from "../components/map/CrimeMap";
-import { api, getStoredUser, isPatrolAllowed } from "../lib/client";
-import { PATROL_ROUTES } from "../lib/crime";
+import { useAppContext } from "../store/AppContext";
+import { buildDashboardDataset } from "../lib/dataset";
 
-const API = import.meta.env.VITE_API_BASE_URL || "/api/v1";
+const baseDataset = buildDashboardDataset([], [], null);
+const dijkstraRoute = {
+  id: "dijkstra",
+  label: "Dijkstra",
+  distanceKm: 14.2,
+  fuelLitres: 3.4,
+  timeMinutes: 48,
+  computeMs: 124,
+  waypoints: baseDataset.route.dijkstra.waypoints,
+};
 
-// Adapt backend route format to CrimeMap format
-function adaptRoute(r) {
-  // Backend returns waypoints as array of [lat, lng] or {lat, lng}
-  const waypoints = (r.waypoints ?? []).map((w) =>
-    Array.isArray(w) ? { lat: w[0], lng: w[1] } : w
-  );
-  return {
-    id:       r.id,
-    name:     r.name ?? r.label ?? `Route ${r.id}`,
-    color:    r.color ?? "#2563eb",
-    waypoints,
-  };
-}
-
-function Row({ label, vals, highlightId, ids }) {
-  return (
-    <tr>
-      <td className="cw-table-dt">{label}</td>
-      {vals.map((v, i) => {
-        const isBest = ids && highlightId && ids[i] === highlightId;
-        return (
-          <td key={i} className={isBest ? "cw-table-dd highlight" : "cw-table-dd"}>
-            {v}
-            {isBest && <Star size={12} style={{ marginLeft: 4, display: "inline", color: "#facc15" }} />}
-          </td>
-        );
-      })}
-    </tr>
-  );
-}
+const geneticRoute = {
+  id: "genetic",
+  label: "Genetic Algorithm",
+  distanceKm: 12.8,
+  fuelLitres: 2.7,
+  timeMinutes: 54,
+  computeMs: 318,
+  waypoints: baseDataset.route.genetic.waypoints,
+};
 
 export default function PatrolPage() {
-  const navigate  = useNavigate();
-  const [allowed, setAllowed]     = useState(null);
-  const [routes,  setRoutes]      = useState(PATROL_ROUTES); // default static
-  const [comparison, setComparison] = useState(null);
-  const [recommended, setRecommended] = useState(null);
-  const [loading, setLoading]     = useState(false);
-  const [error,   setError]       = useState(null);
+  const { setRoute, hotspots, incidents } = useAppContext();
 
   useEffect(() => {
     const ok = isPatrolAllowed(getStoredUser());
@@ -151,59 +133,8 @@ export default function PatrolPage() {
 
         {error && <div className="cw-error-box" style={{ marginTop: "12px" }}>{error}</div>}
 
-        {/* Comparison table */}
-        {comparison && (
-          <div className="cw-table-wrap">
-            <table className="cw-table">
-              <thead>
-                <tr>
-                  <th>Metric</th>
-                  {comparison.map((c) => (
-                    <th key={c.id}>
-                      <span
-                        style={{
-                          display: "inline-block",
-                          width: 8,
-                          height: 8,
-                          borderRadius: "50%",
-                          background: c.color,
-                          marginRight: 4,
-                          verticalAlign: "middle",
-                        }}
-                      />
-                      {(c.name ?? "").split("—")[0].trim()}
-                    </th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                <Row label="Distance (km)"      vals={comparison.map((c) => c.distanceKm ?? c.distance_km ?? "—")} />
-                <Row label="Incidents covered"  vals={comparison.map((c) => c.incidentsCovered ?? c.incidents_covered ?? "—")} />
-                <Row label="Hotspots covered"   vals={comparison.map((c) => c.hotspotsCovered ?? c.hotspots_covered ?? "—")} />
-                <Row label="Hotspot coverage %" vals={comparison.map((c) => `${c.hotCoveragePct ?? c.hot_coverage_pct ?? "—"}%`)} />
-                <Row label="Est. time (min)"    vals={comparison.map((c) => c.estMinutes ?? c.est_minutes ?? "—")} />
-                <Row
-                  label="Efficiency score"
-                  vals={comparison.map((c) => c.efficiencyScore ?? c.efficiency_score ?? "—")}
-                  highlightId={recommended}
-                  ids={comparison.map((c) => c.id)}
-                />
-              </tbody>
-            </table>
-          </div>
-        )}
-
-        {/* Recommended banner */}
-        {recommended && comparison && (
-          <div className="cw-recommended">
-            <CheckCircle2 size={16} style={{ flexShrink: 0, marginTop: 2, color: "#4ade80" }} />
-            <span>
-              Recommended:{" "}
-              <b>{comparison.find((c) => c.id === recommended)?.name}</b>{" "}
-              offers the best coverage-to-distance efficiency.
-            </span>
-          </div>
-        )}
+      <div className="map-shell">
+        <CrimeMap hotspots={hotspots} incidents={incidents} patrolRoute={{ dijkstra: dijkstraRoute, genetic: geneticRoute }} />
       </div>
     </div>
   );

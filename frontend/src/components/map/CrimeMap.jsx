@@ -1,224 +1,202 @@
-/**
- * CrimeMap — Leaflet map component (mirrors prototype CrimeMap.tsx).
- *
- * Uses raw Leaflet (not react-leaflet) for full control, matching the
- * prototype's dynamic import + useRef pattern exactly.
- *
- * Props:
- *   incidents   – array of { id, type, description, lat, lng, severity, priority, status, suburb, created_at }
- *   hotspots    – array of { id, lat, lng, count, weight, radius, level, top_types }
- *   routes      – array of { id, name, color, waypoints: [{lat,lng}] }
- *   onMapClick  – (lat, lng) => void   — for location selection
- *   selected    – { lat, lng } | null  — selected pin marker
- *   showIncidents – bool
- *   height      – CSS height string (default "100%")
- */
-import { useEffect, useRef } from "react";
+import { useMemo, useState } from "react";
+import { CircleMarker, MapContainer, Polyline, Popup, TileLayer } from "react-leaflet";
 import "leaflet/dist/leaflet.css";
-import { HARARE_CENTER, PRIORITY_COLOR, LEVEL_COLOR, SEVERITY_COLOR } from "../../lib/crime";
+import { HARARE_CENTER } from "../../lib/dataset";
 
-// Priority badge colours (prototype exact)
-const getPriorityColor = (priority) =>
-  PRIORITY_COLOR[priority?.toLowerCase()] ?? "#94a3b8";
+const DEFAULT_HOTSPOTS = [
+  { id: 1, name: "CBD Junction", riskScore: 0.92, lat: -17.8278, lng: 31.0535 },
+  { id: 2, name: "Mbare East", riskScore: 0.84, lat: -17.8332, lng: 31.0568 },
+  { id: 3, name: "Kuwadzana Loop", riskScore: 0.72, lat: -17.8207, lng: 31.0654 },
+];
 
-// Hotspot ring colour
-const getLevelColor = (level) =>
-  LEVEL_COLOR[level?.toLowerCase()] ?? "#eab308";
+const DEFAULT_INCIDENTS = [
+  { id: 10, description: "Suspicious vehicle", severity: "HIGH", location: "Harare CBD", lat: -17.8292, lng: 31.0522 },
+  { id: 11, description: "Street robbery", severity: "MEDIUM", location: "Mbare", lat: -17.8338, lng: 31.0584 },
+];
 
-// Backend severity → colour (HIGH / MEDIUM / LOW)
-const getSeverityColor = (severity) =>
-  SEVERITY_COLOR[severity?.toUpperCase()] ?? "#94a3b8";
+function toSafeNumber(value, fallback = 0) {
+  const numericValue = Number(value);
+  return Number.isFinite(numericValue) ? numericValue : fallback;
+}
 
-export default function CrimeMap({
-  incidents = [],
-  hotspots  = [],
-  routes    = [],
-  onMapClick,
-  selected,
-  showIncidents = true,
-  height = "100%",
-}) {
-  const containerRef = useRef(null);
-  const mapRef       = useRef(null);
-  const layerRef     = useRef(null);
-  const selectRef    = useRef(null);
-  const LRef         = useRef(null);
-  const clickRef     = useRef(onMapClick);
-  clickRef.current = onMapClick;
+function normalizeSeverity(severity = "MEDIUM") {
+  return String(severity ?? "MEDIUM").toUpperCase();
+}
 
-  // ── Init map once ─────────────────────────────────────────────────────────
-  useEffect(() => {
-    let cancelled = false;
+function resolveSeverityColor(severity = "MEDIUM") {
+  const normalized = normalizeSeverity(severity);
+  if (normalized === "HIGH" || normalized === "CRITICAL") return "#ef4444";
+  if (normalized === "MEDIUM") return "#f59e0b";
+  if (normalized === "LOW") return "#10b981";
+  return "#60a5fa";
+}
 
-    (async () => {
-      const L = (await import("leaflet")).default ?? (await import("leaflet"));
-      if (cancelled || !containerRef.current || mapRef.current) return;
-      LRef.current = L;
+function resolveHotspotColor(riskScore = 0.5) {
+  const normalizedScore = toSafeNumber(riskScore, 0.5);
+  if (normalizedScore >= 0.85) return "#ef4444";
+  if (normalizedScore >= 0.7) return "#f59e0b";
+  return "#10b981";
+}
 
-      const map = L.map(containerRef.current, {
-        center: [HARARE_CENTER.lat, HARARE_CENTER.lng],
-        zoom: 12,
-        zoomControl: true,
-      });
+function resolveRadius(value, base, min = 4, max = 16) {
+  return Math.max(min, Math.min(max, toSafeNumber(value, base)));
+}
 
-      L.tileLayer(
-        "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png",
-        {
-          attribution:
-            '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
-          maxZoom: 19,
-        }
-      ).addTo(map);
+export default function CrimeMap({ hotspots = [], incidents = [], patrolRoute }) {
+  const [selectedFeature, setSelectedFeature] = useState(null);
 
-      map.on("click", (e) => {
-        clickRef.current?.(e.latlng.lat, e.latlng.lng);
-      });
+  const hotspotMarkers = useMemo(() => {
+    const source = hotspots.length ? hotspots : DEFAULT_HOTSPOTS;
+    return source.map((hotspot, index) => ({
+      ...hotspot,
+      id: hotspot.id ?? `hotspot-${index + 1}`,
+      name: hotspot.name ?? hotspot.dominant_category ?? `Hotspot ${index + 1}`,
+      lat: hotspot.lat ?? hotspot.latitude ?? hotspot.location_lat ?? hotspot.centroid?.lat ?? HARARE_CENTER[0],
+      lng: hotspot.lng ?? hotspot.longitude ?? hotspot.location_lng ?? hotspot.centroid?.lng ?? HARARE_CENTER[1],
+      riskScore: toSafeNumber(hotspot.riskScore ?? hotspot.risk_score ?? hotspot.risk ?? 0.5, 0.5),
+      threatLevel: hotspot.threatLevel ?? hotspot.severity ?? (toSafeNumber(hotspot.riskScore ?? hotspot.risk_score ?? hotspot.risk ?? 0.5, 0.5) >= 0.8 ? "HIGH" : "MEDIUM"),
+    }));
+  }, [hotspots]);
 
-      layerRef.current = L.layerGroup().addTo(map);
-      mapRef.current   = map;
-      setTimeout(() => map.invalidateSize(), 150);
-    })();
+  const incidentMarkers = useMemo(() => {
+    const source = incidents.length ? incidents : DEFAULT_INCIDENTS;
+    return source.map((incident) => ({
+      ...incident,
+      lat: incident.lat ?? incident.latitude ?? incident.location_lat ?? HARARE_CENTER[0],
+      lng: incident.lng ?? incident.longitude ?? incident.location_lng ?? HARARE_CENTER[1],
+      severity: normalizeSeverity(incident.severity),
+      locationLabel: incident.location_description || incident.location || "Harare district",
+    }));
+  }, [incidents]);
 
-    return () => {
-      cancelled = true;
-      if (mapRef.current) {
-        mapRef.current.remove();
-        mapRef.current = null;
-      }
-    };
-  }, []);
+  const routeLayers = useMemo(() => {
+    const routes = [];
 
-  // ── Redraw layers when data changes ─────────────────────────────────────
-  useEffect(() => {
-    const L     = LRef.current;
-    const layer = layerRef.current;
-    if (!L || !layer) return;
-    layer.clearLayers();
-
-    // 1. Patrol routes (polylines drawn first, sit under markers)
-    for (const r of routes) {
-      const latlngs = r.waypoints.map((w) => [w.lat, w.lng]);
-      L.polyline(latlngs, { color: r.color, weight: 5, opacity: 0.85 })
-        .bindPopup(`<b>${r.name}</b>`)
-        .addTo(layer);
-      r.waypoints.forEach((w) => {
-        L.circleMarker([w.lat, w.lng], {
-          radius: 4,
-          color: r.color,
-          fillColor: r.color,
-          fillOpacity: 1,
-          weight: 1,
-        }).addTo(layer);
-      });
+    if (patrolRoute?.dijkstra?.waypoints?.length) {
+      routes.push({ key: "dijkstra", label: patrolRoute.dijkstra.label || "Dijkstra route", color: "#3b82f6", points: patrolRoute.dijkstra.waypoints });
     }
 
-    // 2. Hotspots (coloured risk circles from GIS module)
-    for (const h of hotspots) {
-      // Resolve coordinates — handle both adapted shape and raw backend shape
-      const lat = h.lat ?? h.centroid?.lat ?? null;
-      const lng = h.lng ?? h.centroid?.lng ?? null;
-      if (!lat || !lng) continue;
-
-      // Support both prototype field names (level) and backend field names (risk_score)
-      const level = h.level ?? (
-        (h.risk_score ?? h.riskScore ?? h.weight ?? 0) >= 0.7  ? "high"
-        : (h.risk_score ?? h.riskScore ?? h.weight ?? 0) >= 0.45 ? "medium"
-        : "low"
-      );
-      const color  = getLevelColor(level);
-      const radius = h.radius ?? Math.min(1200, 350 + (h.incident_count ?? h.count ?? 1) * 60);
-      const count  = h.count ?? h.incident_count ?? 0;
-      const weight = h.weight ?? h.risk_score ?? h.riskScore ?? 0;
-      const topTypes = h.topTypes ?? h.top_types ?? [];
-
-      L.circle([lat, lng], {
-        radius,
-        color,
-        fillColor: color,
-        fillOpacity: 0.25,
-        weight: 2,
-      })
-        .bindPopup(
-          `<div style="min-width:180px;font-family:sans-serif">
-            <b style="color:${color}">${level.toUpperCase()} Risk Hotspot</b><br/>
-            <table style="width:100%;margin-top:6px;font-size:12px">
-              <tr><td style="color:#64748b">Incidents</td><td><b>${count}</b></td></tr>
-              <tr><td style="color:#64748b">Risk score</td><td><b>${typeof weight === "number" ? weight.toFixed(3) : weight}</b></td></tr>
-              <tr><td style="color:#64748b">Category</td><td>${(Array.isArray(topTypes) ? topTypes.join(", ") : topTypes) || "—"}</td></tr>
-            </table>
-          </div>`
-        )
-        .addTo(layer);
+    if (patrolRoute?.genetic?.waypoints?.length) {
+      routes.push({ key: "genetic", label: patrolRoute.genetic.label || "Genetic route", color: "#10b981", points: patrolRoute.genetic.waypoints });
     }
 
-    // 3. Incidents (small dots, colour by priority/severity)
-    if (showIncidents) {
-      for (const i of incidents) {
-        // Support both prototype priority field and backend severity field
-        const color = i.priority
-          ? getPriorityColor(i.priority)
-          : getSeverityColor(i.severity);
-
-        // Resolve coordinates from both adapted and raw backend shapes
-        const lat = i.lat ?? i.location?.lat ?? i.latitude ?? i.location_lat;
-        const lng = i.lng ?? i.location?.lng ?? i.longitude ?? i.location_lng;
-        if (!lat || !lng) continue;
-
-        const category  = i.type ?? i.category ?? "Incident";
-        const severity  = i.severity ?? "";
-        const suburb    = i.suburb ?? i.location_description ?? "";
-        const summary   = i.description ?? i.triage_summary ?? i.raw_text ?? "";
-
-        L.circleMarker([lat, lng], {
-          radius: 6,
-          color: "#0f172a",
-          weight: 1,
-          fillColor: color,
-          fillOpacity: 0.95,
-        })
-          .bindPopup(
-            `<div style="min-width:200px;font-family:sans-serif">
-              <b>${category}</b>
-              <span style="color:${color};font-weight:700"> ${severity ? '· ' + severity : ''}</span><br/>
-              <span style="font-size:12px;color:#64748b">${suburb}</span><br/>
-              <p style="margin:6px 0 0;font-size:12px;line-height:1.5">${summary.slice(0, 120)}${summary.length > 120 ? '…' : ''}</p>
-            </div>`
-          )
-          .addTo(layer);
-      }
-    }
-  }, [incidents, hotspots, routes, showIncidents]);
-
-  // ── Selected pin (for incident reporting) ────────────────────────────────
-  useEffect(() => {
-    const L   = LRef.current;
-    const map = mapRef.current;
-    if (!L || !map) return;
-
-    if (selectRef.current) {
-      map.removeLayer(selectRef.current);
-      selectRef.current = null;
+    if (!routes.length && patrolRoute?.waypoints?.length) {
+      routes.push({ key: "route", label: patrolRoute.label || "Patrol route", color: "#2ec4b6", points: patrolRoute.waypoints });
     }
 
-    if (selected) {
-      const icon = L.divIcon({
-        className: "",
-        html: `<div style="width:24px;height:30px;transform:translate(-12px,-30px)">
-          <svg viewBox="0 0 24 30" width="24" height="30">
-            <path d="M12 0C5.4 0 0 5.4 0 12c0 9 12 18 12 18s12-9 12-18C24 5.4 18.6 0 12 0z" fill="#ef4444" stroke="#b91c1c" stroke-width="1.5"/>
-            <circle cx="12" cy="11" r="4" fill="white" opacity="0.9"/>
-          </svg>
-        </div>`,
-        iconSize: [0, 0],
-      });
-      selectRef.current = L.marker([selected.lat, selected.lng], { icon })
-        .addTo(map)
-        .bindPopup("Selected incident location")
-        .openPopup();
+    if (!routes.length) {
+      routes.push({ key: "fallback", label: "Fallback route", color: "#2ec4b6", points: [[-17.8292, 31.0522], [-17.8238, 31.058], [-17.8207, 31.0654]] });
     }
-  }, [selected]);
+
+    return routes;
+  }, [patrolRoute]);
 
   return (
-    <div ref={containerRef} style={{ height, width: "100%" }} />
+    <section className="panel map-panel">
+      <div className="panel-heading">
+        <p className="eyebrow">Live geospatial view</p>
+        <h2>Threat landscape</h2>
+      </div>
+      <div className="map-surface">
+        <MapContainer center={HARARE_CENTER} zoom={13} scrollWheelZoom className="leaflet-map">
+          <TileLayer
+            attribution="&copy; OpenStreetMap contributors"
+            url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+          />
+
+          {routeLayers.map((route) => (
+            <Polyline
+              key={route.key}
+              positions={route.points}
+              pathOptions={{ color: route.color, weight: 4, dashArray: route.key === "fallback" ? "6 6" : "4 4" }}
+            />
+          ))}
+
+          {hotspotMarkers.map((hotspot) => (
+            <CircleMarker
+              key={hotspot.id}
+              center={[hotspot.lat, hotspot.lng]}
+              radius={resolveRadius(hotspot.riskScore * 20, 10, 8, 18)}
+              pathOptions={{ color: resolveHotspotColor(hotspot.riskScore), fillColor: resolveHotspotColor(hotspot.riskScore), fillOpacity: 0.75 }}
+              eventHandlers={{
+                click: () => setSelectedFeature({
+                  kind: "hotspot",
+                  title: hotspot.name,
+                  subtitle: hotspot.dominant_category || "Threat hotspot",
+                  details: [
+                    { label: "Risk", value: `${Number(hotspot.riskScore).toFixed(2)}` },
+                    { label: "Incidents", value: hotspot.incident_count || hotspot.incidents || "Tracked" },
+                    { label: "Location", value: `${hotspot.lat.toFixed(4)}, ${hotspot.lng.toFixed(4)}` },
+                  ],
+                }),
+              }}
+            >
+              <Popup>
+                <strong>{hotspot.name}</strong>
+                <br />
+                Threat level: {hotspot.threatLevel || "MEDIUM"}
+                <br />
+                Risk score: {Number(hotspot.riskScore).toFixed(2)}
+              </Popup>
+            </CircleMarker>
+          ))}
+
+          {incidentMarkers.map((incident) => (
+            <CircleMarker
+              key={incident.id}
+              center={[incident.lat, incident.lng]}
+              radius={resolveRadius(incident.severity === "HIGH" || incident.severity === "CRITICAL" ? 9 : 6, 6, 5, 11)}
+              pathOptions={{ color: resolveSeverityColor(incident.severity), fillColor: resolveSeverityColor(incident.severity), fillOpacity: 0.9 }}
+              eventHandlers={{
+                click: () => setSelectedFeature({
+                  kind: "incident",
+                  title: incident.locationLabel,
+                  subtitle: incident.description,
+                  details: [
+                    { label: "Severity", value: incident.severity },
+                    { label: "Category", value: incident.category || "General" },
+                    { label: "Location", value: `${incident.lat.toFixed(4)}, ${incident.lng.toFixed(4)}` },
+                  ],
+                }),
+              }}
+            >
+              <Popup>
+                <strong>{incident.locationLabel}</strong>
+                <br />
+                {incident.description}
+                <br />
+                Severity: {incident.severity}
+              </Popup>
+            </CircleMarker>
+          ))}
+        </MapContainer>
+      </div>
+
+      <div style={{ marginTop: "0.8rem", padding: "0.85rem", borderRadius: "0.85rem", background: "#0f172a", color: "#e2e8f0", border: "1px solid rgba(255,255,255,0.14)" }}>
+        {selectedFeature ? (
+          <>
+            <div style={{ fontSize: "0.75rem", color: "#7dd3fc", textTransform: "uppercase", letterSpacing: "0.16em" }}>{selectedFeature.kind}</div>
+            <div style={{ fontWeight: 700, marginTop: "0.2rem" }}>{selectedFeature.title}</div>
+            <div style={{ color: "#cbd5e1", marginTop: "0.2rem" }}>{selectedFeature.subtitle}</div>
+            <div style={{ display: "grid", gap: "0.3rem", marginTop: "0.6rem" }}>
+              {selectedFeature.details.map((detail) => (
+                <div key={detail.label} style={{ display: "flex", justifyContent: "space-between", gap: "1rem", fontSize: "0.92rem" }}>
+                  <span style={{ color: "#94a3b8" }}>{detail.label}</span>
+                  <span style={{ fontWeight: 600 }}>{detail.value}</span>
+                </div>
+              ))}
+            </div>
+          </>
+        ) : (
+          <div style={{ color: "#cbd5e1" }}>Click a marker to inspect the incident or hotspot details.</div>
+        )}
+      </div>
+
+      <div className="legend-row">
+        <span><i className="legend-dot hotspot" />Hotspot</span>
+        <span><i className="legend-dot incident" />Incident</span>
+        <span><i className="legend-dot route" />Route</span>
+      </div>
+    </section>
   );
 }
