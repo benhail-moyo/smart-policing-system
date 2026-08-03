@@ -1,7 +1,0 @@
-{
-  "version": 3,
-  "sources": [],
-  "sections": [
-    {"offset": {"line": 4, "column": 0}, "map": {"version":3,"sources":["file:///C:/smart-policing-system/crime-watch-ui/extracted/src/app/layout.tsx"],"sourcesContent":["import type { Metadata } from \"next\";\nimport type { ReactNode } from \"react\";\nimport \"./globals.css\";\n\nexport const metadata: Metadata = {\n  title: \"Harare Crime Watch\",\n  description:\n    \"Community crime reporting, hotspot analysis and patrol planning for Harare.\",\n};\n\nexport default function RootLayout({ children }: { children: ReactNode }) {\n  return (\n    <html lang=\"en\">\n      <body className=\"bg-slate-950 text-slate-100 antialiased\">{children}</body>\n    </html>\n  );\n}\n"],"names":["metadata","title","description","RootLayout","children","lang","className"],"mappings":";;;;;;;;;AAIO,MAAMA,WAAqB;IAChCC,OAAO;IACPC,aACE;AACJ;AAEe,SAASC,WAAW,EAAEC,QAAQ,EAA2B;IACtE,qBACE,mRAAC;QAAKC,MAAK;kBACT,cAAA,mRAAC;YAAKC,WAAU;sBAA2CF;;;;;;;;;;;AAGjE"}},
-    {"offset": {"line": 42, "column": 0}, "map": {"version":3,"sources":["file:///C:/smart-policing-system/crime-watch-ui/extracted/node_modules/next/src/server/route-modules/app-page/vendored/rsc/react-jsx-dev-runtime.ts"],"sourcesContent":["module.exports = (\n  require('../../module.compiled') as typeof import('../../module.compiled')\n).vendored['react-rsc']!.ReactJsxDevRuntime\n"],"names":["module","exports","require","vendored","ReactJsxDevRuntime"],"mappings":"AAAAA,OAAOC,OAAO,GACZC,QAAQ,qJACRC,QAAQ,CAAC,YAAY,CAAEC,kBAAkB","ignoreList":[0]}}]
-}
