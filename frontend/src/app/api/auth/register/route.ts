@@ -1,8 +1,3 @@
-import { db } from "@/db";
-import { users } from "@/db/schema";
-import { eq } from "drizzle-orm";
-import { hashPassword, generateToken } from "@/lib/auth";
-
 export const dynamic = "force-dynamic";
 
 export async function POST(request: Request) {
@@ -14,44 +9,29 @@ export async function POST(request: Request) {
     );
   }
 
-  const email = String(body.email).toLowerCase();
-  const existing = await db
-    .select()
-    .from(users)
-    .where(eq(users.email, email))
-    .limit(1);
-  if (existing[0]) {
+  try {
+    const response = await fetch(`${process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:5000/api/v1'}/auth/register`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        name: String(body.name),
+        email: String(body.email).toLowerCase(),
+        password: String(body.password),
+        role: body.role === "officer" || body.role === "admin" ? body.role : "community",
+      }),
+    });
+
+    const data = await response.json();
+
+    if (!response.ok) {
+      return Response.json(data, { status: response.status });
+    }
+
+    return Response.json(data);
+  } catch (error) {
     return Response.json(
-      { error: "An account with that email already exists" },
-      { status: 409 }
+      { error: "Failed to connect to authentication service" },
+      { status: 500 }
     );
   }
-
-  const role =
-    body.role === "officer" || body.role === "admin"
-      ? body.role
-      : "community";
-  const token = generateToken();
-
-  const inserted = await db
-    .insert(users)
-    .values({
-      name: String(body.name),
-      email,
-      password: hashPassword(String(body.password)),
-      role,
-      token,
-    })
-    .returning();
-
-  const user = inserted[0];
-  return Response.json({
-    token,
-    user: {
-      id: user.id,
-      name: user.name,
-      email: user.email,
-      role: user.role,
-    },
-  });
 }

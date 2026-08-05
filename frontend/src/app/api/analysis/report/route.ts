@@ -1,205 +1,35 @@
-import { db } from "@/db";
-import { incidents, hotspots } from "@/db/schema";
-import { desc, gte } from "drizzle-orm";
-import { requireUser } from "@/lib/auth";
-
 export const dynamic = "force-dynamic";
 
-// ---- Analysis engine ----
-
-type IncidentRow = typeof incidents.$inferSelect;
-type HotspotRow = typeof hotspots.$inferSelect;
-
-interface AnalysisReport {
-  generatedAt: string;
-  period: string;
-  summary: {
-    totalIncidents: number;
-    activeHotspots: number;
-    resolutionRate: number;
-    mostDangerousTime: string;
-    mostDangerousDay: string;
-    mostReportedType: string;
-    trendDirection: "rising" | "falling" | "stable";
-    trendPercent: number;
-  };
-  priorityBreakdown: { critical: number; high: number; medium: number; low: number };
-  statusBreakdown: { reported: number; dispatched: number; resolved: number };
-  timeAnalysis: {
-    hourlyDistribution: { hour: number; count: number }[];
-    peakHours: string;
-    quietHours: string;
-    weekdayDistribution: { day: string; count: number }[];
-    weekendVsWeekday: { weekendPct: number; weekdayPct: number };
-  };
-  geographicAnalysis: {
-    topSuburbs: { name: string; count: number; riskLevel: string }[];
-    emergingHotspots: { name: string; count: number; trend: string }[];
-    safestSuburbs: { name: string; count: number }[];
-    geographicSpread: string;
-  };
-  crimeTypeAnalysis: {
-    topTypes: { type: string; count: number; trend: string }[];
-    shifts: { type: string; change: string }[];
-    dominantPattern: string;
-  };
-  hotspotCorrelation: {
-    topHotspots: { lat: number; lng: number; level: string; topTypes: string[]; count: number; weight: number }[];
-    hotspotDensity: string;
-    clusterSummary: string;
-  };
-  riskForecast: {
-    nextWeekRisk: "critical" | "high" | "medium" | "low";
-    confidence: number;
-    factors: string[];
-    predictedHotspotAreas: string[];
-  };
-  recommendations: {
-    priority: "critical" | "high" | "medium" | "low";
-    action: string;
-    rationale: string;
-    timeframe: string;
-  }[];
-  narrative: string;
-}
-
-// Helpers
-function hourLabel(h: number): string {
-  return `${String(h).padStart(2, "0")}:00`;
-}
-
-function getTrend(
-  current: { count: number }[],
-  previous: { count: number }[]
-): { direction: "rising" | "falling" | "stable"; pct: number } {
-  const cSum = current.reduce((s, x) => s + x.count, 0);
-  const pSum = previous.reduce((s, x) => s + x.count, 0);
-  if (pSum === 0 && cSum === 0) return { direction: "stable", pct: 0 };
-  if (pSum === 0) return { direction: "rising", pct: 100 };
-  const pct = Math.round(((cSum - pSum) / pSum) * 100);
-  const direction = pct > 10 ? "rising" : pct < -10 ? "falling" : "stable";
-  return { direction, pct };
-}
-
-function buildNarrative(
-  rpt: Omit<AnalysisReport, "narrative">
-): string {
-  const { summary, timeAnalysis, geographicAnalysis, crimeTypeAnalysis, riskForecast } = rpt;
-  const lines = [
-    `Harare Crime Intelligence Report — Generated ${rpt.generatedAt.split("T")[0]}.`,
-    ``,
-    `OVERVIEW: A total of ${summary.totalIncidents} incidents were analysed across the reporting period, with ${summary.activeHotspots} active crime hotspots identified. The resolution rate stands at ${summary.resolutionRate}%, and the overall crime trend is ${summary.trendDirection} (${summary.trendPercent > 0 ? "+" : ""}${summary.trendPercent}% vs previous period).`,
-    ``,
-    `TEMPORAL PATTERNS: Crime activity peaks during ${timeAnalysis.peakHours}, with the quietest period being ${timeAnalysis.quietHours}. The most dangerous day is ${summary.mostDangerousDay}. ${timeAnalysis.weekendVsWeekday.weekendPct > timeAnalysis.weekendVsWeekday.weekdayPct ? "Weekends show elevated criminal activity compared to weekdays." : "Weekdays see higher incident rates than weekends."}`,
-    ``,
-    `GEOGRAPHIC DISTRIBUTION: ${geographicAnalysis.geographicSpread} The highest-risk areas are ${geographicAnalysis.topSuburbs.slice(0, 3).map((s) => s.name).join(", ")}. ${geographicAnalysis.emergingHotspots.length > 0 ? `Emerging concerns noted in ${geographicAnalysis.emergingHotspots.map((h) => h.name).join(", ")}.` : ""}`,
-    ``,
-    `CRIME TYPE ANALYSIS: ${crimeTypeAnalysis.dominantPattern} The most frequently reported type is ${summary.mostReportedType}. ${crimeTypeAnalysis.shifts.length > 0 ? `Notable shifts: ${crimeTypeAnalysis.shifts.map((s) => `${s.type} ${s.change}`).join("; ")}.` : ""}`,
-    ``,
-    `RISK ASSESSMENT: The forecast for the coming week indicates a ${riskForecast.nextWeekRisk.toUpperCase()} risk level with ${riskForecast.confidence}% confidence. Key risk factors include ${riskForecast.factors.join(", ")}. Areas to monitor: ${riskForecast.predictedHotspotAreas.join(", ")}.`,
-  ];
-  return lines.join("\n");
-}
-
-// ---- Route handler ----
-
 export async function POST(request: Request) {
-  const user = await requireUser(request);
-  if (!user) {
-    return Response.json({ error: "Unauthorized" }, { status: 401 });
-  }
+  const header = request.headers.get("authorization");
+  const token = header?.startsWith("Bearer ") ? header.slice(7) : header;
 
   const body = await request.json().catch(() => ({}));
-  const periodDays = Math.min(90, Math.max(1, Number(body.periodDays) || 30));
 
-  const since = new Date(Date.now() - periodDays * 86400000);
-  const prevSince = new Date(since.getTime() - periodDays * 86400000);
+  try {
+    const response = await fetch(`${process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:5000/api/v1'}/analysis/report`, {
+      method: 'POST',
+      headers: { 
+        'Content-Type': 'application/json',
+        ...(token && { 'Authorization': `Bearer ${token}` }),
+      },
+      body: JSON.stringify(body),
+    });
 
-  const rows = await db
-    .select()
-    .from(incidents)
-    .where(gte(incidents.createdAt, since))
-    .orderBy(desc(incidents.createdAt));
+    const data = await response.json();
 
-  const prevRows = await db
-    .select()
-    .from(incidents)
-    .where(gte(incidents.createdAt, prevSince))
-    .orderBy(desc(incidents.createdAt));
+    if (!response.ok) {
+      return Response.json(data, { status: response.status });
+    }
 
-  const hotRows = await db.select().from(hotspots);
-
-  const periodLabel = periodDays === 1 ? "24 hours" : periodDays === 7 ? "7 days" : periodDays === 30 ? "30 days" : `${periodDays} days`;
-
-  // ---- SUMMARY ----
-  const total = rows.length;
-  const resolved = rows.filter((r) => r.status === "resolved").length;
-  const resolutionRate = total > 0 ? Math.round((resolved / total) * 100) : 0;
-
-  const byPriority = { critical: 0, high: 0, medium: 0, low: 0 };
-  const byStatus = { reported: 0, dispatched: 0, resolved: 0 };
-  const byType: Record<string, number> = {};
-  const bySuburb: Record<string, number> = {};
-  const byHour: number[] = new Array(24).fill(0);
-  const byWeekday: number[] = new Array(7).fill(0);
-  let weekendCount = 0;
-  let weekdayCount = 0;
-
-  const weekdayNames = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
-
-  for (const r of rows) {
-    const p = r.priority as keyof typeof byPriority;
-    byPriority[p] = (byPriority[p] ?? 0) + 1;
-    const st = r.status as keyof typeof byStatus;
-    byStatus[st] = (byStatus[st] ?? 0) + 1;
-    byType[r.type] = (byType[r.type] ?? 0) + 1;
-    const sub = r.suburb ?? "Unknown";
-    bySuburb[sub] = (bySuburb[sub] ?? 0) + 1;
-    const d = new Date(r.createdAt);
-    byHour[d.getHours()]++;
-    byWeekday[d.getDay()]++;
-    if (d.getDay() === 0 || d.getDay() === 6) weekendCount++;
-    else weekdayCount++;
+    return Response.json(data);
+  } catch (error) {
+    return Response.json(
+      { error: "Failed to connect to analysis service" },
+      { status: 500 }
+    );
   }
-
-  const totalDOW = weekendCount + weekdayCount;
-  const weekendPct = totalDOW > 0 ? Math.round((weekendCount / totalDOW) * 100) : 0;
-  const weekdayPct = 100 - weekendPct;
-
-  // top crime type
-  const sortedTypes = Object.entries(byType).sort((a, b) => b[1] - a[1]);
-  const mostReportedType = sortedTypes[0]?.[0] ?? "N/A";
-
-  // most dangerous hour
-  let maxHour = 0;
-  for (let h = 1; h < 24; h++) if (byHour[h] > byHour[maxHour]) maxHour = h;
-  const mostDangerousTime = hourLabel(maxHour);
-
-  // most dangerous day
-  let maxDay = 0;
-  for (let d = 1; d < 7; d++) if (byWeekday[d] > byWeekday[maxDay]) maxDay = d;
-  const mostDangerousDay = weekdayNames[maxDay];
-
-  // peak/quiet hours
-  const sortedHours = byHour.map((c, h) => ({ hour: h, count: c })).sort((a, b) => b.count - a.count);
-  const peakHours = sortedHours.slice(0, 3).map((h) => hourLabel(h.hour)).join(", ");
-  const quietHours = sortedHours.slice(-3).reverse().map((h) => hourLabel(h.hour)).join(", ");
-
-  // trend
-  const currTypeEntries = sortedTypes.slice(0, 6).map(([type, count]) => ({ type, count }));
-  const prevByType: Record<string, number> = {};
-  for (const r of prevRows) {
-    prevByType[r.type] = (prevByType[r.type] ?? 0) + 1;
-  }
-  const prevTypeEntries = currTypeEntries.map(({ type }) => ({
-    type,
-    count: prevByType[type] ?? 0,
-  }));
-  const trend = getTrend(currTypeEntries.map(({ count }) => ({ count })), prevTypeEntries.map(({ count }) => ({ count })));
-
-  // ---- TIME ANALYSIS ----
-  const hourlyDistribution = byHour.map((count, hour) => ({ hour, count }));
-  const weekdayDistribution = byWeekday.map((count, i) => ({
+}kdayDistribution = byWeekday.map((count, i) => ({
     day: weekdayNames[i],
     count,
   }));

@@ -1,7 +1,4 @@
-import { db } from "@/db";
-import { users } from "@/db/schema";
-import { eq } from "drizzle-orm";
-import { verifyPassword, generateToken } from "@/lib/auth";
+import api from "@/lib/api";
 
 export const dynamic = "force-dynamic";
 
@@ -14,27 +11,27 @@ export async function POST(request: Request) {
     );
   }
 
-  const rows = await db
-    .select()
-    .from(users)
-    .where(eq(users.email, String(body.email).toLowerCase()))
-    .limit(1);
-  const user = rows[0];
+  try {
+    const response = await fetch(`${process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:5000/api/v1'}/auth/login`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        email: String(body.email).toLowerCase(),
+        password: String(body.password),
+      }),
+    });
 
-  if (!user || !verifyPassword(String(body.password), user.password)) {
-    return Response.json({ error: "Invalid credentials" }, { status: 401 });
+    const data = await response.json();
+
+    if (!response.ok) {
+      return Response.json(data, { status: response.status });
+    }
+
+    return Response.json(data);
+  } catch (error) {
+    return Response.json(
+      { error: "Failed to connect to authentication service" },
+      { status: 500 }
+    );
   }
-
-  const token = generateToken();
-  await db.update(users).set({ token }).where(eq(users.id, user.id));
-
-  return Response.json({
-    token,
-    user: {
-      id: user.id,
-      name: user.name,
-      email: user.email,
-      role: user.role,
-    },
-  });
 }

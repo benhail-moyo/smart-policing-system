@@ -36,28 +36,24 @@ def _build_location(lat, lng):
 # ── POST /api/v1/incidents/ ────────────────────────────────────────────────
 
 @incidents_bp.post("/")
-@jwt_required()
+@jwt_required(optional=True)
 def create_incident():
     """
     Submit and triage a crime report.
 
-    Request body:
-      raw_text            str   Required. 5–5000 characters.
-      location_lat        float Optional.
-      location_lng        float Optional.
-      location_description str  Optional.
-
-    Returns 201 with full triage result on success.
+    Supports both frontend format:
+      { type, description, severity, suburb, lat, lng }
+    and backend format:
+      { raw_text, location_lat, location_lng, location_description }
     """
     data = request.get_json(silent=True) or {}
 
-    # ── Input validation ───────────────────────────────────────────────────
-    raw_text = data.get("raw_text", "").strip()
+    raw_text = (data.get("raw_text") or data.get("description") or "").strip()
 
     if not raw_text:
-        return jsonify({"error": "raw_text is required"}), 400
+        return jsonify({"error": "Description or raw_text is required"}), 400
 
-    if len(raw_text) < 5:
+    if len(raw_text) < 3:
         return jsonify({"error": "Report too short to classify"}), 400
 
     if len(raw_text) > 5000:
@@ -66,72 +62,83 @@ def create_incident():
     # ── Run NLP triage ────────────────────────────────────────────────────
     triage_result = triage_service.triage(raw_text)
 
+    # If category or severity passed explicitly, respect/blend it
+    category = data.get("type") or triage_result.get("category") or "General"
+    req_sev = data.get("severity")
+    if req_sev:
+        sev_val = str(req_sev).upper()
+        severity = "HIGH" if sev_val in ("5", "4", "HIGH") else "MEDIUM" if sev_val in ("3", "MEDIUM") else "LOW"
+    else:
+        severity = triage_result.get("severity", "MEDIUM")
+
     # ── Resolve submitting user ────────────────────────────────────────────
-    user_id = get_jwt_identity()
+    raw_user_id = get_jwt_identity()
+    user_id = int(raw_user_id) if raw_user_id and str(raw_user_id).isdigit() else None
+
+    lat = data.get("lat") if data.get("lat") is not None else data.get("location_lat")
+    lng = data.get("lng") if data.get("lng") is not None else data.get("location_lng")
+    suburb = data.get("suburb") or data.get("location_description") or "Harare"
 
     # ── Build and persist Incident ─────────────────────────────────────────
     incident = Incident(
         raw_text=raw_text,
         language_detected=triage_result.get("language_detected", "en"),
-        category=triage_result.get("category"),
-        severity=triage_result.get("severity"),
-        triage_confidence=triage_result.get("confidence"),
-        triage_summary=triage_result.get("summary"),
+        category=category,
+        severity=severity,
+        triage_confidence=triage_result.get("confidence", 0.85),
+        triage_summary=triage_result.get("summary", raw_text[:100]),
         raw_gemini_response=triage_result.get("raw_gemini_response"),
         status="TRIAGED",
-        location=_build_location(
-            data.get("location_lat"),
-            data.get("location_lng"),
-        ),
-        location_description=data.get("location_description", ""),
+        location=_build_location(lat, lng),
+        location_description=suburb,
         reported_by_id=user_id,
     )
 
     db.session.add(incident)
     db.session.commit()
 
+    inc_dict = incident.to_dict()
+    triage_payload = {
+        "priority": inc_dict["priority"],
+        "score": inc_dict["triageScore"],
+        "recommendation": triage_result.get("reasoning") or triage_result.get("summary") or "Dispatch patrol unit as priority.",
+        "eta": "0-5 min" if inc_dict["priority"] == "critical" else "5-15 min" if inc_dict["priority"] == "high" else "15-45 min" if inc_dict["priority"] == "medium" else "1-4 hrs",
+        "language_detected": triage_result.get("language_detected"),
+        "category": category,
+        "severity": severity,
+        "confidence": triage_result.get("confidence"),
+        "summary": triage_result.get("summary"),
+    }
+
     return jsonify({
         "message": "Incident submitted and triaged successfully.",
-        "incident": incident.to_dict(),
-        "triage": {
-            "language_detected": triage_result.get("language_detected"),
-            "category": triage_result.get("category"),
-            "severity": triage_result.get("severity"),
-            "confidence": triage_result.get("confidence"),
-            "summary": triage_result.get("summary"),
-            "reasoning": triage_result.get("reasoning"),
-        },
+        "incident": inc_dict,
+        "triage": triage_payload,
     }), 201
 
 
 # ── GET /api/v1/incidents/ ─────────────────────────────────────────────────
 
 @incidents_bp.get("/")
-@jwt_required()
+@jwt_required(optional=True)
 def list_incidents():
     """
     List incidents. Officers/admins see all; community users see only their own.
-
-    Query params:
-      severity   Filter by HIGH | MEDIUM | LOW
-      limit      Max results (default 50, max 200)
-      offset     Pagination offset (default 0)
     """
     user_id = get_jwt_identity()
-    user = db.session.get(User, user_id)
+    user = db.session.get(User, int(user_id)) if user_id and str(user_id).isdigit() else None
 
     severity_filter = request.args.get("severity", "").upper()
     try:
-        limit = min(int(request.args.get("limit", 50)), 200)
+        limit = min(int(request.args.get("limit", 500)), 1000)
         offset = int(request.args.get("offset", 0))
     except (TypeError, ValueError):
-        limit, offset = 50, 0
+        limit, offset = 500, 0
 
     query = db.session.query(Incident)
 
-    # Community reporters only see their own incidents
     if user and user.role == "community":
-        query = query.filter(Incident.reported_by_id == user_id)
+        query = query.filter(Incident.reported_by_id == user.id)
 
     if severity_filter in ("HIGH", "MEDIUM", "LOW"):
         query = query.filter(Incident.severity == severity_filter)
@@ -155,44 +162,93 @@ def list_incidents():
 # ── GET /api/v1/incidents/stats ────────────────────────────────────────────
 
 @incidents_bp.get("/stats")
-@jwt_required()
+@jwt_required(optional=True)
 def get_stats():
     """
-    Returns incident counts grouped by severity.
-    Used by the React dashboard summary cards.
+    Returns full incident statistics and 7-day trends for the React dashboard.
     """
-    results = (
-        db.session.query(Incident.severity, func.count(Incident.id))
-        .group_by(Incident.severity)
-        .all()
-    )
-    by_severity = {str(sev): count for sev, count in results}
-    total = sum(count for _, count in results)
+    incidents = db.session.query(Incident).all()
+    total = len(incidents)
+
+    by_priority = {"critical": 0, "high": 0, "medium": 0, "low": 0}
+    by_status = {"reported": 0, "dispatched": 0, "resolved": 0}
+    by_type = {}
+
+    from datetime import datetime, timezone, timedelta
+    now = datetime.now(timezone.utc)
+    day_sec = 86400
+    last_24h = 0
+    last_7d = 0
+
+    for inc in incidents:
+        d = inc.to_dict()
+        p = d.get("priority", "medium")
+        by_priority[p] = by_priority.get(p, 0) + 1
+
+        st = d.get("status", "reported")
+        if st not in by_status:
+            st = "reported"
+        by_status[st] = by_status.get(st, 0) + 1
+
+        t = d.get("type", "General")
+        by_type[t] = by_type.get(t, 0) + 1
+
+        if inc.created_at:
+            created = inc.created_at.replace(tzinfo=timezone.utc) if inc.created_at.tzinfo is None else inc.created_at
+            age_sec = (now - created).total_seconds()
+            if age_sec <= day_sec:
+                last_24h += 1
+            if age_sec <= 7 * day_sec:
+                last_7d += 1
+
+    top_types = [
+        {"type": t, "count": c}
+        for t, c in sorted(by_type.items(), key=lambda x: x[1], reverse=True)[:6]
+    ]
+
+    # 7-day trend
+    trend = []
+    for i in range(6, -1, -1):
+        target_day = now - timedelta(days=i)
+        day_str = target_day.strftime("%a")
+        day_start = target_day.replace(hour=0, minute=0, second=0, microsecond=0)
+        day_end = target_day.replace(hour=23, minute=59, second=59, microsecond=999999)
+
+        count = 0
+        for inc in incidents:
+            if inc.created_at:
+                created = inc.created_at.replace(tzinfo=timezone.utc) if inc.created_at.tzinfo is None else inc.created_at
+                if day_start <= created <= day_end:
+                    count += 1
+        trend.append({"day": day_str, "count": count})
+
+    open_cases = by_status.get("reported", 0) + by_status.get("dispatched", 0)
+    resolution_rate = round((by_status.get("resolved", 0) / total * 100)) if total > 0 else 0
 
     return jsonify({
-        "by_severity": by_severity,
         "total": total,
+        "openCases": open_cases,
+        "resolutionRate": resolution_rate,
+        "last24h": last_24h,
+        "last7d": last_7d,
+        "byPriority": by_priority,
+        "byStatus": by_status,
+        "topTypes": top_types,
+        "trend": trend,
     }), 200
 
 
 # ── GET /api/v1/incidents/<id> ─────────────────────────────────────────────
 
 @incidents_bp.get("/<int:incident_id>")
-@jwt_required()
+@jwt_required(optional=True)
 def get_incident(incident_id: int):
     """
     Retrieve a single incident by ID.
-    Community users may only view their own incidents.
     """
-    user_id = get_jwt_identity()
-    user = db.session.get(User, user_id)
-
     incident = db.session.get(Incident, incident_id)
     if not incident:
         return jsonify({"error": "Incident not found"}), 404
 
-    # Community reporters can only see their own reports
-    if user and user.role == "community" and incident.reported_by_id != user_id:
-        return jsonify({"error": "Insufficient permissions"}), 403
-
     return jsonify({"incident": incident.to_dict()}), 200
+

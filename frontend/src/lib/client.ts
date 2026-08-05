@@ -42,6 +42,8 @@ export function isPatrolAllowed(user: AuthUser | null): boolean {
   return user?.role === "officer" || user?.role === "admin";
 }
 
+const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL || "http://127.0.0.1:5000/api/v1";
+
 export async function api<T = unknown>(
   path: string,
   options: RequestInit = {}
@@ -53,7 +55,18 @@ export async function api<T = unknown>(
   };
   if (token) headers.Authorization = `Bearer ${token}`;
 
-  const res = await fetch(path, { ...options, headers });
+  // Route all API calls through the Next.js API routes which proxy to the backend
+  let targetUrl = path;
+  if (path.startsWith("http://") || path.startsWith("https://")) {
+    targetUrl = path;
+  } else if (path.startsWith("/api/")) {
+    // Keep as-is - will be handled by Next.js API routes
+    targetUrl = path;
+  } else {
+    targetUrl = `/api${path}`;
+  }
+
+  const res = await fetch(targetUrl, { ...options, headers });
   const data = await res.json().catch(() => ({}));
   if (!res.ok) {
     throw new Error(
@@ -62,3 +75,4 @@ export async function api<T = unknown>(
   }
   return data as T;
 }
+

@@ -1,72 +1,29 @@
-import { db } from "@/db";
-import { incidents } from "@/db/schema";
-
 export const dynamic = "force-dynamic";
 
-export async function GET() {
-  const rows = await db.select().from(incidents);
+export async function GET(request: Request) {
+  const header = request.headers.get("authorization");
+  const token = header?.startsWith("Bearer ") ? header.slice(7) : header;
 
-  const total = rows.length;
-  const byPriority: Record<string, number> = {
-    critical: 0,
-    high: 0,
-    medium: 0,
-    low: 0,
-  };
-  const byStatus: Record<string, number> = {
-    reported: 0,
-    dispatched: 0,
-    resolved: 0,
-  };
-  const byType: Record<string, number> = {};
-
-  const dayMs = 24 * 60 * 60 * 1000;
-  const now = Date.now();
-  let last24h = 0;
-  let last7d = 0;
-
-  for (const r of rows) {
-    byPriority[r.priority] = (byPriority[r.priority] ?? 0) + 1;
-    byStatus[r.status] = (byStatus[r.status] ?? 0) + 1;
-    byType[r.type] = (byType[r.type] ?? 0) + 1;
-    const age = now - new Date(r.createdAt).getTime();
-    if (age <= dayMs) last24h++;
-    if (age <= 7 * dayMs) last7d++;
-  }
-
-  const topTypes = Object.entries(byType)
-    .sort((a, b) => b[1] - a[1])
-    .slice(0, 6)
-    .map(([type, count]) => ({ type, count }));
-
-  // simple 7-day trend
-  const trend: { day: string; count: number }[] = [];
-  for (let i = 6; i >= 0; i--) {
-    const start = now - (i + 1) * dayMs;
-    const end = now - i * dayMs;
-    const count = rows.filter((r) => {
-      const t = new Date(r.createdAt).getTime();
-      return t > start && t <= end;
-    }).length;
-    const label = new Date(end).toLocaleDateString("en-US", {
-      weekday: "short",
+  try {
+    const response = await fetch(`${process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:5000/api/v1'}/incidents/stats`, {
+      method: 'GET',
+      headers: { 
+        'Content-Type': 'application/json',
+        ...(token && { 'Authorization': `Bearer ${token}` }),
+      },
     });
-    trend.push({ day: label, count });
+
+    const data = await response.json();
+
+    if (!response.ok) {
+      return Response.json(data, { status: response.status });
+    }
+
+    return Response.json(data);
+  } catch (error) {
+    return Response.json(
+      { error: "Failed to connect to incidents service" },
+      { status: 500 }
+    );
   }
-
-  const openCases = (byStatus.reported ?? 0) + (byStatus.dispatched ?? 0);
-  const resolutionRate =
-    total > 0 ? Math.round(((byStatus.resolved ?? 0) / total) * 100) : 0;
-
-  return Response.json({
-    total,
-    openCases,
-    resolutionRate,
-    last24h,
-    last7d,
-    byPriority,
-    byStatus,
-    topTypes,
-    trend,
-  });
 }

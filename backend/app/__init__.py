@@ -48,11 +48,15 @@ def create_app(config_name: str = "development") -> Flask:
     from app.api.v1.routes.hotspots import hotspots_bp
     from app.api.v1.routes.patrol import patrol_bp
     from app.api.v1.routes.auth import auth_bp
+    from app.api.v1.routes.analysis import analysis_bp
+    from app.api.v1.routes.seed import seed_bp
 
     app.register_blueprint(auth_bp,      url_prefix="/api/v1/auth")
     app.register_blueprint(incidents_bp, url_prefix="/api/v1/incidents")
     app.register_blueprint(hotspots_bp,  url_prefix="/api/v1/hotspots")
     app.register_blueprint(patrol_bp,    url_prefix="/api/v1/patrol")
+    app.register_blueprint(analysis_bp,  url_prefix="/api/v1/analysis")
+    app.register_blueprint(seed_bp,      url_prefix="/api/v1/seed")
 
     # ── Health check ─────────────────────────────────────────────────────────
     @app.get("/health")
@@ -60,3 +64,4 @@ def create_app(config_name: str = "development") -> Flask:
         return {"status": "ok", "service": "crime-watch-api"}, 200
 
     return app
+

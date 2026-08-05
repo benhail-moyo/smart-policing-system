@@ -1,69 +1,47 @@
-import { db } from "@/db";
-import { incidents } from "@/db/schema";
-import { desc, gte, lte, and, sql } from "drizzle-orm";
-import { requireUser } from "@/lib/auth";
-import { triage } from "@/lib/crime";
-
 export const dynamic = "force-dynamic";
 
 export async function GET(request: Request) {
   const url = new URL(request.url);
-  const from = url.searchParams.get("from"); // ISO date string
-  const to = url.searchParams.get("to");
-  const hourFrom = url.searchParams.get("hourFrom"); // 0-23
-  const hourTo = url.searchParams.get("hourTo"); // 0-23
-  const period = url.searchParams.get("period"); // "24h" | "7d" | "30d"
+  const header = request.headers.get("authorization");
+  const token = header?.startsWith("Bearer ") ? header.slice(7) : header;
 
-  const conditions = [];
+  // Build query params for backend
+  const params = new URLSearchParams();
+  const severity = url.searchParams.get("severity");
+  const limit = url.searchParams.get("limit");
+  const offset = url.searchParams.get("offset");
+  
+  if (severity) params.append("severity", severity);
+  if (limit) params.append("limit", limit);
+  if (offset) params.append("offset", offset);
 
-  if (from) {
-    conditions.push(gte(incidents.createdAt, new Date(from)));
-  }
-  if (to) {
-    conditions.push(lte(incidents.createdAt, new Date(to)));
-  }
-
-  if (period) {
-    const now = new Date();
-    if (period === "24h") {
-      conditions.push(gte(incidents.createdAt, new Date(now.getTime() - 86400000)));
-    } else if (period === "7d") {
-      conditions.push(gte(incidents.createdAt, new Date(now.getTime() - 7 * 86400000)));
-    } else if (period === "30d") {
-      conditions.push(gte(incidents.createdAt, new Date(now.getTime() - 30 * 86400000)));
-    } else if (period === "90d") {
-      conditions.push(gte(incidents.createdAt, new Date(now.getTime() - 90 * 86400000)));
-    }
-  }
-
-  let query = db.select().from(incidents).$dynamic();
-  if (conditions.length > 0) {
-    query = query.where(and(...conditions));
-  }
-  query = query.orderBy(desc(incidents.createdAt)).limit(500);
-
-  let rows = await query;
-
-  // client-side hour filtering (db-agnostic)
-  if (hourFrom !== null || hourTo !== null) {
-    const hf = hourFrom !== null ? parseInt(hourFrom, 10) : 0;
-    const ht = hourTo !== null ? parseInt(hourTo, 10) : 23;
-    rows = rows.filter((r) => {
-      const h = new Date(r.createdAt).getHours();
-      if (hf <= ht) return h >= hf && h <= ht;
-      // wraps around midnight e.g. 20-4
-      return h >= hf || h <= ht;
+  try {
+    const response = await fetch(`${process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:5000/api/v1'}/incidents/?${params.toString()}`, {
+      method: 'GET',
+      headers: { 
+        'Content-Type': 'application/json',
+        ...(token && { 'Authorization': `Bearer ${token}` }),
+      },
     });
-  }
 
-  return Response.json({ incidents: rows });
+    const data = await response.json();
+
+    if (!response.ok) {
+      return Response.json(data, { status: response.status });
+    }
+
+    return Response.json(data);
+  } catch (error) {
+    return Response.json(
+      { error: "Failed to connect to incidents service" },
+      { status: 500 }
+    );
+  }
 }
 
 export async function POST(request: Request) {
-  const user = await requireUser(request);
-  if (!user) {
-    return Response.json({ error: "Unauthorized" }, { status: 401 });
-  }
+  const header = request.headers.get("authorization");
+  const token = header?.startsWith("Bearer ") ? header.slice(7) : header;
 
   const body = await request.json().catch(() => null);
   if (
@@ -78,24 +56,34 @@ export async function POST(request: Request) {
     );
   }
 
-  const severity = Math.min(5, Math.max(1, Number(body.severity) || 3));
-  const result = triage(String(body.type), severity);
+  try {
+    const response = await fetch(`${process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:5000/api/v1'}/incidents/`, {
+      method: 'POST',
+      headers: { 
+        'Content-Type': 'application/json',
+        ...(token && { 'Authorization': `Bearer ${token}` }),
+      },
+      body: JSON.stringify({
+        type: String(body.type),
+        description: String(body.description),
+        lat: Number(body.lat),
+        lng: Number(body.lng),
+        severity: body.severity,
+        suburb: body.suburb,
+      }),
+    });
 
-  const inserted = await db
-    .insert(incidents)
-    .values({
-      type: String(body.type),
-      description: String(body.description),
-      lat: Number(body.lat),
-      lng: Number(body.lng),
-      severity,
-      priority: result.priority,
-      triageScore: result.score,
-      suburb: body.suburb ? String(body.suburb) : null,
-      reportedBy: user.name,
-      status: "reported",
-    })
-    .returning();
+    const data = await response.json();
 
-  return Response.json({ incident: inserted[0], triage: result });
+    if (!response.ok) {
+      return Response.json(data, { status: response.status });
+    }
+
+    return Response.json(data);
+  } catch (error) {
+    return Response.json(
+      { error: "Failed to connect to incidents service" },
+      { status: 500 }
+    );
+  }
 }

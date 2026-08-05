@@ -3,7 +3,7 @@
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { api, setAuth, getStoredUser, type AuthUser } from "@/lib/client";
-import { Shield, UserPlus, LogIn, Car, Users, Loader2 } from "lucide-react";
+import { Shield, UserPlus, LogIn, Car, Users, Loader2, User } from "lucide-react";
 
 type AuthResponse = { token: string; user: AuthUser };
 
@@ -20,8 +20,7 @@ export default function LoginPage() {
 
   useEffect(() => {
     if (getStoredUser()) router.replace("/");
-    // ensure demo data exists
-    fetch("/api/seed", { method: "POST" }).catch(() => {});
+    api("/api/seed", { method: "POST" }).catch(() => {});
   }, [router]);
 
   async function submit(e: React.FormEvent) {
@@ -52,11 +51,23 @@ export default function LoginPage() {
     setError(null);
     setSeeding(true);
     try {
-      await fetch("/api/seed", { method: "POST" });
-      const res = await api<AuthResponse>("/api/auth/login", {
-        method: "POST",
-        body: JSON.stringify({ email: demoEmail, password: "password123" }),
-      });
+      await api("/api/seed", { method: "POST" }).catch(() => {});
+      const role = demoEmail.includes("officer") ? "officer" : demoEmail.includes("admin") ? "admin" : "community";
+      const name = demoEmail.includes("officer") ? "Officer Chikwava" : demoEmail.includes("admin") ? "Command Admin" : "Tendai Moyo";
+
+      let res: AuthResponse;
+      try {
+        res = await api<AuthResponse>("/api/auth/login", {
+          method: "POST",
+          body: JSON.stringify({ email: demoEmail, password: "password123" }),
+        });
+      } catch {
+        res = await api<AuthResponse>("/api/auth/register", {
+          method: "POST",
+          body: JSON.stringify({ name, email: demoEmail, password: "password123", role }),
+        });
+      }
+
       setAuth(res.token, res.user);
       router.replace("/");
     } catch (err) {
@@ -185,6 +196,18 @@ export default function LoginPage() {
                   <Car className="h-4 w-4" />
                 )}
                 Patrol Officer
+              </button>
+              <button
+                disabled={seeding}
+                onClick={() => demoLogin("admin@harare.gov.zw")}
+                className="flex items-center justify-center gap-2 rounded-lg border border-slate-700 bg-slate-800 py-2 text-sm hover:border-blue-500 disabled:opacity-50"
+              >
+                {seeding ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <User className="h-4 w-4" />
+                )}
+                Admin
               </button>
               <button
                 disabled={seeding}

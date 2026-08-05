@@ -80,6 +80,7 @@ function ReportInner() {
       setResult(res.triage);
       setDescription("");
       setSuburb("");
+      setPoint(null);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to submit");
     } finally {

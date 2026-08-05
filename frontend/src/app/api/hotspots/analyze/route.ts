@@ -1,46 +1,32 @@
-import { db } from "@/db";
-import { incidents, hotspots } from "@/db/schema";
-import { requireUser } from "@/lib/auth";
-import { analyzeHotspots } from "@/lib/crime";
-
 export const dynamic = "force-dynamic";
 
 export async function POST(request: Request) {
-  const user = await requireUser(request);
-  if (!user) {
-    return Response.json({ error: "Unauthorized" }, { status: 401 });
-  }
+  const header = request.headers.get("authorization");
+  const token = header?.startsWith("Bearer ") ? header.slice(7) : header;
 
-  const rows = await db.select().from(incidents);
-  const points = rows.map((r) => ({
-    lat: r.lat,
-    lng: r.lng,
-    severity: r.severity,
-    priority: r.priority,
-    type: r.type,
-  }));
+  const body = await request.json().catch(() => ({}));
 
-  const results = analyzeHotspots(points);
+  try {
+    const response = await fetch(`${process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:5000/api/v1'}/hotspots/analyze`, {
+      method: 'POST',
+      headers: { 
+        'Content-Type': 'application/json',
+        ...(token && { 'Authorization': `Bearer ${token}` }),
+      },
+      body: JSON.stringify(body),
+    });
 
-  // replace existing hotspots
-  await db.delete(hotspots);
-  if (results.length > 0) {
-    await db.insert(hotspots).values(
-      results.map((h) => ({
-        lat: h.lat,
-        lng: h.lng,
-        count: h.count,
-        weight: h.weight,
-        radius: h.radius,
-        level: h.level,
-        topTypes: h.topTypes,
-      }))
+    const data = await response.json();
+
+    if (!response.ok) {
+      return Response.json(data, { status: response.status });
+    }
+
+    return Response.json(data);
+  } catch (error) {
+    return Response.json(
+      { error: "Failed to connect to hotspots service" },
+      { status: 500 }
     );
   }
-
-  return Response.json({
-    analyzed: points.length,
-    hotspots: results.length,
-    results,
-  });
 }
