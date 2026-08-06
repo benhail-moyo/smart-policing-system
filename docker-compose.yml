@@ -10,7 +10,7 @@ services:
       - "5432:5432"
     volumes:
       - crime_watch_pgdata:/var/lib/postgresql/data
-      - ./infra/docker/init.sql:/docker-entrypoint-initdb.d/01-init.sql:ro
+      - ./infra/docker/init_db.sql:/docker-entrypoint-initdb.d/01-init.sql:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U crime_watch -d crime_watch"]
       interval: 10s
@@ -26,6 +26,7 @@ services:
       - DATABASE_URL=postgresql://crime_watch:crime_watch@db:5432/crime_watch
       - FLASK_ENV=development
       - FLASK_APP=wsgi.py
+    command: sh -c "python init_db.py && flask run --host=0.0.0.0 --port=5000"
     ports:
       - "5000:5000"
     volumes:
@@ -40,7 +41,7 @@ services:
       dockerfile: Dockerfile
     container_name: crime-watch-frontend
     environment:
-      - NEXT_PUBLIC_API_HOST=http://backend:5000
+      - BACKEND_API_URL=http://backend:5000
     ports:
       - "3000:3000"
     volumes:

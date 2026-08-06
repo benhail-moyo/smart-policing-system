@@ -1,3 +1,4 @@
+import { backendApiUrl } from "@/lib/backend-api";
 export const dynamic = "force-dynamic";
 
 export async function GET(request: Request) {
@@ -16,7 +17,7 @@ export async function GET(request: Request) {
   if (offset) params.append("offset", offset);
 
   try {
-    const response = await fetch(`${process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:5000/api/v1'}/incidents/?${params.toString()}`, {
+    const response = await fetch(`${backendApiUrl}/incidents/?${params.toString()}`, {
       method: 'GET',
       headers: { 
         'Content-Type': 'application/json',
@@ -57,7 +58,7 @@ export async function POST(request: Request) {
   }
 
   try {
-    const response = await fetch(`${process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:5000/api/v1'}/incidents/`, {
+    const response = await fetch(`${backendApiUrl}/incidents/`, {
       method: 'POST',
       headers: { 
         'Content-Type': 'application/json',

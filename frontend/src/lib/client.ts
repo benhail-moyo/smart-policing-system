@@ -66,7 +66,16 @@ export async function api<T = unknown>(
     targetUrl = `/api${path}`;
   }
 
-  const res = await fetch(targetUrl, { ...options, headers });
+  let res = await fetch(targetUrl, { ...options, headers });
+
+  // Public endpoints accept anonymous requests, but Flask rejects an invalid
+  // optional JWT. Clear an expired/stale local session and retry anonymously.
+  if (token && (res.status === 401 || res.status === 422)) {
+    clearAuth();
+    delete headers.Authorization;
+    res = await fetch(targetUrl, { ...options, headers });
+  }
+
   const data = await res.json().catch(() => ({}));
   if (!res.ok) {
     throw new Error(
@@ -75,4 +84,3 @@ export async function api<T = unknown>(
   }
   return data as T;
 }
-

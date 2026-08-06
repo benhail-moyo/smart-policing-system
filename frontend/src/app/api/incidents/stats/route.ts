@@ -1,3 +1,4 @@
+import { backendApiUrl } from "@/lib/backend-api";
 export const dynamic = "force-dynamic";
 
 export async function GET(request: Request) {
@@ -5,7 +6,7 @@ export async function GET(request: Request) {
   const token = header?.startsWith("Bearer ") ? header.slice(7) : header;
 
   try {
-    const response = await fetch(`${process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:5000/api/v1'}/incidents/stats`, {
+    const response = await fetch(`${backendApiUrl}/incidents/stats`, {
       method: 'GET',
       headers: { 
         'Content-Type': 'application/json',

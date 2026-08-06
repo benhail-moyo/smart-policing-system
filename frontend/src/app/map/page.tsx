@@ -118,7 +118,9 @@ function MapInner() {
     const [inc, hot, rt] = await Promise.all([
       api<{ incidents: MapIncident[] }>("/api/incidents"),
       api<{ hotspots: MapHotspot[] }>("/api/hotspots"),
-      api<{ routes: MapRoute[] }>("/api/patrol/routes"),
+      api<{ routes: MapRoute[] }>("/api/patrol/routes").catch(() => ({
+        routes: [],
+      })),
     ]);
     setAllIncidents(inc.incidents);
     setHotspots(hot.hotspots);
@@ -138,13 +140,13 @@ function MapInner() {
     setError(null);
     setMsg(null);
     try {
-      const res = await api<{ analyzed: number; hotspots: number }>(
+      const res = await api<{ analyzed: number; hotspots: MapHotspot[] }>(
         "/api/hotspots/analyze",
         { method: "POST" }
       );
       await load();
       setMsg(
-        `Analysis complete: ${res.hotspots} hotspots from ${res.analyzed} incidents.`
+        `Analysis complete: ${res.hotspots.length} hotspots from ${res.analyzed} incidents.`
       );
     } catch (e) {
       setError(e instanceof Error ? e.message : "Analysis failed");

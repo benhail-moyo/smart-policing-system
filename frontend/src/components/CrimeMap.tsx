@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import "leaflet/dist/leaflet.css";
 import type * as LeafletNS from "leaflet";
 import { HARARE_CENTER } from "@/lib/crime";
@@ -72,6 +72,7 @@ export default function CrimeMap({
   const selectRef = useRef<LeafletNS.Layer | null>(null);
   const LRef = useRef<typeof LeafletNS | null>(null);
   const clickRef = useRef(onMapClick);
+  const [mapReady, setMapReady] = useState(false);
   clickRef.current = onMapClick;
 
   // init map once
@@ -103,6 +104,7 @@ export default function CrimeMap({
 
       layerRef.current = L.layerGroup().addTo(map);
       mapRef.current = map;
+      setMapReady(true);
       // force size recalc
       setTimeout(() => map.invalidateSize(), 150);
     })();
@@ -193,7 +195,7 @@ export default function CrimeMap({
           .addTo(layer);
       }
     }
-  }, [incidents, hotspots, routes, showIncidents]);
+  }, [incidents, hotspots, routes, showIncidents, mapReady]);
 
   // selected marker for reporting
   useEffect(() => {

@@ -1,3 +1,4 @@
+import { backendApiUrl } from "@/lib/backend-api";
 export const dynamic = "force-dynamic";
 
 export async function POST(request: Request) {
@@ -10,7 +11,7 @@ export async function POST(request: Request) {
   }
 
   try {
-    const response = await fetch(`${process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:5000/api/v1'}/auth/register`, {
+    const response = await fetch(`${backendApiUrl}/auth/register`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({

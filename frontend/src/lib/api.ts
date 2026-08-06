@@ -17,13 +17,11 @@ async function apiRequest<T>(
     ? localStorage.getItem('token') 
     : null;
 
-  const headers: HeadersInit = {
-    'Content-Type': 'application/json',
-    ...options.headers,
-  };
+  const headers = new Headers(options.headers);
+  headers.set('Content-Type', 'application/json');
 
   if (token) {
-    headers['Authorization'] = `Bearer ${token}`;
+    headers.set('Authorization', `Bearer ${token}`);
   }
 
   const config: RequestInit = {
