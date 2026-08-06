@@ -17,5 +17,37 @@ services:
       timeout: 5s
       retries: 5
 
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: crime-watch-backend
+    environment:
+      - DATABASE_URL=postgresql://crime_watch:crime_watch@db:5432/crime_watch
+      - FLASK_ENV=development
+      - FLASK_APP=wsgi.py
+    ports:
+      - "5000:5000"
+    volumes:
+      - ./backend:/app
+    depends_on:
+      db:
+        condition: service_healthy
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: crime-watch-frontend
+    environment:
+      - NEXT_PUBLIC_API_HOST=http://backend:5000
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./frontend:/usr/src/app
+      - /usr/src/app/node_modules
+    depends_on:
+      - backend
+
 volumes:
   crime_watch_pgdata:

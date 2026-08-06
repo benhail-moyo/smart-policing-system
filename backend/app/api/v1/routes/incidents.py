@@ -80,6 +80,7 @@ def create_incident():
     suburb = data.get("suburb") or data.get("location_description") or "Harare"
 
     # ── Build and persist Incident ─────────────────────────────────────────
+    # Persist incident using simplified lat/lng fields (SQLite-compatible schema)
     incident = Incident(
         raw_text=raw_text,
         language_detected=triage_result.get("language_detected", "en"),
@@ -89,7 +90,8 @@ def create_incident():
         triage_summary=triage_result.get("summary", raw_text[:100]),
         raw_gemini_response=triage_result.get("raw_gemini_response"),
         status="TRIAGED",
-        location=_build_location(lat, lng),
+        lat=float(lat) if lat is not None else None,
+        lng=float(lng) if lng is not None else None,
         location_description=suburb,
         reported_by_id=user_id,
     )

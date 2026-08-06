@@ -162,7 +162,8 @@ class HotspotAnalysisService:
         cutoff = self._now() - timedelta(days=max(int(days_back), 1))
         return (
             db.session.query(Incident)
-            .filter(Incident.location.isnot(None))
+            .filter(Incident.lat.isnot(None))
+            .filter(Incident.lng.isnot(None))
             .filter(Incident.created_at >= cutoff)
             .order_by(Incident.created_at.desc())
             .all()
@@ -172,29 +173,35 @@ class HotspotAnalysisService:
         coords = []
         located_incidents = []
         for incident in incidents:
-            if not incident.location:
+            if incident.lat is None or incident.lng is None:
                 continue
             try:
-                point = to_shape(incident.location)
+                lat = float(incident.lat)
+                lng = float(incident.lng)
             except Exception:
                 continue
-            coords.append([float(point.y), float(point.x)])
+            coords.append([lat, lng])
             located_incidents.append(incident)
 
         return np.array(coords, dtype=float), located_incidents
 
     def _build_hotspot(self, incidents: List[Incident]) -> Hotspot:
+        # Build a simplified hotspot record using centroid lat/lng and risk metrics
         points = []
         for incident in incidents:
-            point = to_shape(incident.location)
-            points.append(Point(float(point.x), float(point.y)))
+            try:
+                lat = float(incident.lat)
+                lng = float(incident.lng)
+            except Exception:
+                continue
+            points.append(Point(lng, lat))
 
-        boundary = self._boundary_from_points(points)
-        centroid = boundary.centroid
+        boundary = self._boundary_from_points(points) if points else None
+        centroid = boundary.centroid if boundary is not None else Point(-17.8292, 31.0522)
 
         return Hotspot(
-            boundary=from_shape(boundary, srid=4326),
-            centroid=from_shape(centroid, srid=4326),
+            lat=float(centroid.y),
+            lng=float(centroid.x),
             incident_count=len(incidents),
             risk_score=self._calculate_risk_score(incidents),
             dominant_category=self._dominant_category(incidents),

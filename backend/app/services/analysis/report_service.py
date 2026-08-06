@@ -83,6 +83,10 @@ class AnalysisReportService:
         peak_hours = ", ".join(f"{h:02d}:00" for h in sorted_h_indices[:3])
         quiet_hours = ", ".join(f"{h:02d}:00" for h in sorted_h_indices[-3:][::-1])
 
+        # provide camelCase aliases for templates that expect them
+        peakHours = peak_hours
+        quietHours = quiet_hours
+
         curr_len = len(current_incidents)
         prev_len = len(prev_incidents)
         if prev_len == 0 and curr_len == 0:

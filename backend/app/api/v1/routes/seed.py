@@ -73,6 +73,7 @@ def _build_location(lat, lng):
 
 
 @seed_bp.post("/")
+@seed_bp.post("")
 @jwt_required(optional=True)
 def seed_database():
     # 1. Ensure default users exist
@@ -122,7 +123,8 @@ def seed_database():
                 triage_confidence=0.92,
                 triage_summary=item["description"][:100],
                 status="RESOLVED" if i % 3 == 0 else "TRIAGED",
-                location=_build_point(item["lat"], item["lng"]),
+                lat=float(item["lat"]),
+                lng=float(item["lng"]),
                 location_description=item["suburb"],
                 reported_by_id=officer_user.id if officer_user else None,
                 created_at=now - timedelta(days=i * 2, hours=i * 3),
@@ -134,19 +136,17 @@ def seed_database():
     # 3. Add sample hotspots if empty
     hotspot_count = db.session.query(Hotspot).count()
     if hotspot_count == 0:
-        from geoalchemy2.shape import from_shape
-        from shapely.geometry import Point, Polygon
         h1 = Hotspot(
-            centroid=from_shape(Point(31.0522, -17.8292), srid=4326),
-            boundary=from_shape(Polygon([(31.045, -17.825), (31.060, -17.825), (31.060, -17.835), (31.045, -17.835)]), srid=4326),
+            lat=-17.8292,
+            lng=31.0522,
             incident_count=14,
             risk_score=0.85,
             dominant_category="Armed Robbery",
             analysis_date=datetime.now(timezone.utc),
         )
         h2 = Hotspot(
-            centroid=from_shape(Point(31.0301, -17.8564), srid=4326),
-            boundary=from_shape(Polygon([(31.025, -17.850), (31.038, -17.850), (31.038, -17.865), (31.025, -17.865)]), srid=4326),
+            lat=-17.8564,
+            lng=31.0301,
             incident_count=9,
             risk_score=0.68,
             dominant_category="Carjacking",
@@ -159,6 +159,7 @@ def seed_database():
     total_incidents = db.session.query(Incident).count()
 
     return jsonify({
+        "message": "Seed data installed",
         "seeded": True,
         "users": total_users,
         "incidents": total_incidents,

@@ -1,5 +1,7 @@
 // UI constants that remain in the frontend for display purposes
 
+import api from "./api";
+
 export const HARARE_CENTER = { lat: -17.8292, lng: 31.0522 };
 
 export const CRIME_TYPES = [
@@ -48,4 +50,20 @@ export function routeLengthKm(route: PatrolRoute): number {
     total += haversineKm(route.waypoints[i - 1], route.waypoints[i]);
   }
   return Math.round(total * 100) / 100;
+}
+
+// Call backend to compute route metrics (preferred). Falls back to client-side calculation when backend unavailable.
+export async function fetchRouteMetrics(route: PatrolRoute): Promise<{ distanceKm: number; estMinutes: number; points: number }>{
+  try {
+    const res = await api.post<{ distanceKm: number; estMinutes: number; points: number }>(
+      '/patrol/metrics',
+      { waypoints: route.waypoints }
+    );
+    return res;
+  } catch (e) {
+    // fallback to client-side
+    const distanceKm = routeLengthKm(route);
+    const estMinutes = Math.round(distanceKm * 4);
+    return { distanceKm, estMinutes, points: route.waypoints.length };
+  }
 }

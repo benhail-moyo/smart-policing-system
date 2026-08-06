@@ -143,6 +143,50 @@ def compare_patrol_algorithms():
     }), 200
 
 
+@patrol_bp.post("/metrics")
+@jwt_required(optional=True)
+def route_metrics():
+    """
+    Compute simple route metrics from posted waypoints.
+
+    Request JSON: { "waypoints": [{ "lat": float, "lng": float }, ...] }
+    Response: { "distanceKm": float, "estMinutes": int, "points": int }
+    """
+    data = request.get_json(silent=True) or {}
+    waypoints = data.get("waypoints") or []
+    if not isinstance(waypoints, list) or len(waypoints) < 2:
+        return jsonify({"error": "Provide at least two waypoints"}), 400
+
+    def haversine(a, b):
+        from math import radians, sin, cos, asin, sqrt
+        R = 6371.0
+        dlat = radians(b["lat"] - a["lat"])
+        dlng = radians(b["lng"] - a["lng"])
+        lat1 = radians(a["lat"]) if a.get("lat") is not None else 0
+        lat2 = radians(b["lat"]) if b.get("lat") is not None else 0
+        h = sin(dlat / 2) ** 2 + cos(lat1) * cos(lat2) * sin(dlng / 2) ** 2
+        return 2 * R * asin(sqrt(h))
+
+    total_km = 0.0
+    prev = None
+    for p in waypoints:
+        if prev is not None:
+            try:
+                total_km += float(haversine(prev, p))
+            except Exception:
+                continue
+        prev = p
+
+    # Estimate minutes assuming average patrol speed ~15 km/h -> 4 minutes per km
+    est_minutes = round(total_km * 4)
+
+    return jsonify({
+        "distanceKm": round(total_km, 2),
+        "estMinutes": est_minutes,
+        "points": len(waypoints),
+    }), 200
+
+
 @patrol_bp.get("/routes")
 @jwt_required(optional=True)
 def get_recent_routes():
