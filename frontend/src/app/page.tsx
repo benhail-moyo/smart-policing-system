@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import AppShell from "@/components/AppShell";
-import { api } from "@/lib/client";
+import { api, getStoredUser } from "@/lib/client";
 import {
   BarChart3,
   Siren,
@@ -11,6 +11,9 @@ import {
   CheckCircle2,
   ArrowRight,
   FolderOpen,
+  MapPin,
+  Radio,
+  ShieldCheck,
 } from "lucide-react";
 
 type Stats = {
@@ -35,6 +38,7 @@ const PRIORITY_STYLE: Record<string, string> = {
 function DashboardInner() {
   const [stats, setStats] = useState<Stats | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const user = getStoredUser();
 
   useEffect(() => {
     api<Stats>("/api/incidents/stats")
@@ -46,22 +50,34 @@ function DashboardInner() {
     ? Math.max(1, ...stats.trend.map((t) => t.count))
     : 1;
 
+  if (user?.role === "community") {
+    return (
+      <div className="mx-auto max-w-4xl p-5 md:p-10">
+        <div className="rounded-3xl border border-blue-400/20 bg-gradient-to-br from-blue-600/20 via-slate-900 to-slate-900 p-7 md:p-10">
+          <div className="mb-5 flex h-12 w-12 items-center justify-center rounded-2xl bg-blue-500 text-white"><ShieldCheck className="h-7 w-7" /></div>
+          <h1 className="text-3xl font-bold">Your safety, connected.</h1>
+          <p className="mt-3 max-w-xl text-slate-300">Report an incident directly to the Harare Crime Watch team. Pin its exact location on the map so responders can act faster.</p>
+          <Link href="/report" className="mt-6 inline-flex items-center gap-2 rounded-xl bg-red-600 px-5 py-3 text-sm font-bold hover:bg-red-500"><Siren className="h-4 w-4" />Report an incident <ArrowRight className="h-4 w-4" /></Link>
+        </div>
+        <div className="mt-5 grid gap-4 sm:grid-cols-3">
+          <InfoCard icon={<MapPin className="h-5 w-5 text-blue-300" />} title="Pin the location" text="Select the precise place where it happened." />
+          <InfoCard icon={<Siren className="h-5 w-5 text-red-300" />} title="Share the details" text="Tell us what happened and the severity." />
+          <InfoCard icon={<ShieldCheck className="h-5 w-5 text-emerald-300" />} title="Receive triage" text="Your report is prioritised for the right response." />
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="p-4 md:p-8">
       <div className="mb-6 flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h1 className="text-2xl font-bold">Dashboard</h1>
+          <h1 className="text-2xl font-bold">{user?.role === "admin" ? "Command Overview" : "Officer Dashboard"}</h1>
           <p className="text-sm text-slate-400">
             Real-time crime overview for Harare
           </p>
         </div>
-        <Link
-          href="/map"
-          className="flex items-center gap-1.5 rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold hover:bg-blue-500"
-        >
-          Open Crime Map
-          <ArrowRight className="h-4 w-4" />
-        </Link>
+        <Link href={user?.role === "admin" ? "/command" : "/map"} className="flex items-center gap-1.5 rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold hover:bg-blue-500">{user?.role === "admin" ? <><Radio className="h-4 w-4" />Open Command Centre</> : <>Open Crime Map <ArrowRight className="h-4 w-4" /></>}</Link>
       </div>
 
       {error && (
@@ -178,6 +194,10 @@ function DashboardInner() {
       )}
     </div>
   );
+}
+
+function InfoCard({ icon, title, text }: { icon: React.ReactNode; title: string; text: string }) {
+  return <div className="rounded-2xl border border-slate-800 bg-slate-900/60 p-5"><div className="mb-3">{icon}</div><h2 className="font-semibold">{title}</h2><p className="mt-1 text-sm text-slate-400">{text}</p></div>;
 }
 
 function StatCard({

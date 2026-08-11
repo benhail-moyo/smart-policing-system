@@ -198,3 +198,63 @@ class PatrolRoute(db.Model):
             "computation_time_ms": self.computation_time_ms,
             "created_at": self.created_at.isoformat() if self.created_at else None,
         }
+
+
+class Deployment(db.Model):
+    """A command-centre dispatch marker for either foot or vehicle personnel."""
+    __tablename__ = "deployment"
+
+    id = db.Column(db.Integer, primary_key=True)
+    unit_type = db.Column(db.String(20), nullable=False)  # foot | vehicle
+    area_name = db.Column(db.String(160), nullable=False)
+    lat = db.Column(db.Float, nullable=False)
+    lng = db.Column(db.Float, nullable=False)
+    instructions = db.Column(db.Text, nullable=True)
+    status = db.Column(db.String(30), nullable=False, default="active")
+    created_by_id = db.Column(db.Integer, db.ForeignKey("user.id"), nullable=False)
+    created_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc))
+
+    def to_dict(self):
+        return {"id": self.id, "unitType": self.unit_type, "areaName": self.area_name,
+                "lat": self.lat, "lng": self.lng, "instructions": self.instructions or "",
+                "status": self.status, "createdAt": self.created_at.isoformat() if self.created_at else None}
+
+
+class StrategicPlan(db.Model):
+    __tablename__ = "strategic_plan"
+
+    id = db.Column(db.Integer, primary_key=True)
+    title = db.Column(db.String(180), nullable=False)
+    plan_type = db.Column(db.String(60), nullable=False)
+    area_name = db.Column(db.String(160), nullable=False)
+    scheduled_for = db.Column(db.String(80), nullable=True)
+    personnel = db.Column(db.Integer, nullable=False, default=0)
+    notes = db.Column(db.Text, nullable=True)
+    status = db.Column(db.String(30), nullable=False, default="draft")
+    created_by_id = db.Column(db.Integer, db.ForeignKey("user.id"), nullable=False)
+    created_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc))
+
+    def to_dict(self):
+        return {"id": self.id, "title": self.title, "type": self.plan_type, "areaName": self.area_name,
+                "scheduledFor": self.scheduled_for, "personnel": self.personnel, "notes": self.notes or "",
+                "status": self.status, "createdAt": self.created_at.isoformat() if self.created_at else None}
+
+
+class OfficerDailyLog(db.Model):
+    __tablename__ = "officer_daily_log"
+
+    id = db.Column(db.Integer, primary_key=True)
+    officer_id = db.Column(db.Integer, db.ForeignKey("user.id"), nullable=False)
+    log_date = db.Column(db.String(10), nullable=False)
+    shift = db.Column(db.String(50), nullable=False)
+    area_name = db.Column(db.String(160), nullable=False)
+    summary = db.Column(db.Text, nullable=False)
+    status = db.Column(db.String(30), nullable=False, default="submitted")
+    created_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc))
+    officer = db.relationship("User", foreign_keys=[officer_id])
+
+    def to_dict(self):
+        return {"id": self.id, "officer": self.officer.name if self.officer else "Officer",
+                "date": self.log_date, "shift": self.shift, "areaName": self.area_name,
+                "summary": self.summary, "status": self.status,
+                "createdAt": self.created_at.isoformat() if self.created_at else None}

@@ -36,6 +36,16 @@ export type MapRoute = {
   waypoints: { lat: number; lng: number }[];
 };
 
+export type MapDeployment = {
+  id: number;
+  unitType: "foot" | "vehicle";
+  areaName: string;
+  lat: number;
+  lng: number;
+  instructions?: string;
+  status?: string;
+};
+
 const PRIORITY_COLOR: Record<string, string> = {
   critical: "#dc2626",
   high: "#f97316",
@@ -53,6 +63,7 @@ export default function CrimeMap({
   incidents = [],
   hotspots = [],
   routes = [],
+  deployments = [],
   onMapClick,
   selected,
   showIncidents = true,
@@ -61,6 +72,7 @@ export default function CrimeMap({
   incidents?: MapIncident[];
   hotspots?: MapHotspot[];
   routes?: MapRoute[];
+  deployments?: MapDeployment[];
   onMapClick?: (lat: number, lng: number) => void;
   selected?: { lat: number; lng: number } | null;
   showIncidents?: boolean;
@@ -195,7 +207,15 @@ export default function CrimeMap({
           .addTo(layer);
       }
     }
-  }, [incidents, hotspots, routes, showIncidents, mapReady]);
+
+    for (const d of deployments) {
+      const color = d.unitType === "foot" ? "#22c55e" : "#38bdf8";
+      const symbol = d.unitType === "foot" ? "●" : "◆";
+      L.circleMarker([d.lat, d.lng], { radius: 9, color: "#0f172a", weight: 2, fillColor: color, fillOpacity: 1 })
+        .bindPopup(`<b>${symbol} ${d.unitType === "foot" ? "Foot" : "Vehicle"} deployment</b><br/>${d.areaName}<br/><small>${d.instructions || "No instructions"}</small>`)
+        .addTo(layer);
+    }
+  }, [incidents, hotspots, routes, deployments, showIncidents, mapReady]);
 
   // selected marker for reporting
   useEffect(() => {
