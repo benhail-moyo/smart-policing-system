@@ -6,7 +6,6 @@ import Link from "next/link";
 import {
   getStoredUser,
   clearAuth,
-  isPatrolAllowed,
   type AuthUser,
 } from "@/lib/client";
 import {
@@ -15,17 +14,21 @@ import {
   Siren,
   Car,
   BrainCircuit,
+  Radio,
+  ClipboardPenLine,
   Shield,
   LogOut,
   ChevronRight,
 } from "lucide-react";
 
 const NAV = [
-  { href: "/", label: "Dashboard", Icon: LayoutDashboard, patrolOnly: false },
-  { href: "/map", label: "Crime Map", Icon: Map, patrolOnly: false },
-  { href: "/report", label: "Report Incident", Icon: Siren, patrolOnly: false },
-  { href: "/patrol", label: "Patrol Routes", Icon: Car, patrolOnly: true },
-  { href: "/analysis", label: "AI Analysis", Icon: BrainCircuit, patrolOnly: false },
+  { href: "/", label: "Dashboard", Icon: LayoutDashboard, roles: ["community", "officer", "admin"] },
+  { href: "/command", label: "Command Centre", Icon: Radio, roles: ["admin"] },
+  { href: "/map", label: "Crime Map", Icon: Map, roles: ["officer", "admin"] },
+  { href: "/report", label: "Report Incident", Icon: Siren, roles: ["community", "officer", "admin"] },
+  { href: "/patrol", label: "Patrol Routes", Icon: Car, roles: ["officer", "admin"] },
+  { href: "/field-log", label: "Daily Field Log", Icon: ClipboardPenLine, roles: ["officer", "admin"] },
+  { href: "/analysis", label: "AI Analysis", Icon: BrainCircuit, roles: ["officer", "admin"] },
 ];
 
 export default function AppShell({ children }: { children: React.ReactNode }) {
@@ -57,7 +60,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
     );
   }
 
-  const items = NAV.filter((n) => !n.patrolOnly || isPatrolAllowed(user));
+  const items = NAV.filter((n) => n.roles.includes(user.role));
 
   return (
     <div className="flex min-h-screen bg-slate-950 text-slate-100">
@@ -99,7 +102,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
         <div className="border-t border-slate-800 p-4">
           <div className="mb-3">
             <div className="text-sm font-semibold">{user.name}</div>
-            <div className="text-xs capitalize text-slate-400">{user.role}</div>
+            <div className="text-xs capitalize text-slate-400">{user.role === "admin" ? "Command administrator" : user.role === "community" ? "Community member" : "Field officer"}</div>
           </div>
           <button
             onClick={logout}

@@ -50,6 +50,7 @@ def create_app(config_name: str = "development") -> Flask:
     from app.api.v1.routes.auth import auth_bp
     from app.api.v1.routes.analysis import analysis_bp
     from app.api.v1.routes.seed import seed_bp
+    from app.api.v1.routes.command import command_bp
 
     app.register_blueprint(auth_bp,      url_prefix="/api/v1/auth")
     app.register_blueprint(incidents_bp, url_prefix="/api/v1/incidents")
@@ -57,6 +58,7 @@ def create_app(config_name: str = "development") -> Flask:
     app.register_blueprint(patrol_bp,    url_prefix="/api/v1/patrol")
     app.register_blueprint(analysis_bp,  url_prefix="/api/v1/analysis")
     app.register_blueprint(seed_bp,      url_prefix="/api/v1/seed")
+    app.register_blueprint(command_bp,   url_prefix="/api/v1/command")
 
     # ── Health check ─────────────────────────────────────────────────────────
     @app.get("/health")
