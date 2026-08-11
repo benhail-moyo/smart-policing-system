@@ -12,9 +12,6 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from geoalchemy2.shape import from_shape
-from shapely.geometry import Point
-
 from app import create_app, db
 from app.models.models import Incident, User
 
@@ -95,8 +92,11 @@ def main():
     app = create_app("development")
 
     with app.app_context():
-        officer = ensure_user("officer@crimewatch.zw", "officer", "Officer1234!")
-        ensure_user("admin@crimewatch.zw", "admin", "Admin1234!")
+        officer = ensure_user("officer@crimewatch.zw",   "officer",   "Officer1234!")
+        ensure_user("admin@crimewatch.zw",               "admin",     "Admin1234!")
+        # UI demo login users (match the frontend quick-access buttons)
+        ensure_user("officer@harare.gov.zw",             "officer",   "password123")
+        ensure_user("community@harare.gov.zw",           "community", "password123")
 
         db.session.query(Incident).filter(
             Incident.raw_text.like("Synthetic Harare GIS seed:%")
@@ -124,7 +124,10 @@ def main():
                     triage_summary=make_summary(category, zone["name"]),
                     raw_gemini_response=None,
                     status="TRIAGED",
-                    location=from_shape(Point(lng, lat), srid=4326),
+                    # The active model stores portable scalar coordinates rather
+                    # than a PostGIS geometry column.
+                    lat=lat,
+                    lng=lng,
                     location_description=f"{zone['name']}, Harare",
                     reported_by_id=officer.id,
                     created_at=now - timedelta(days=days_ago, hours=random.randint(0, 23)),

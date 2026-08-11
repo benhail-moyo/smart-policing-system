@@ -10,7 +10,7 @@
   {"id": 9, "text": "Ndima yekuparadza zvinhu paimba, vakabiwa zvinhu zvakawanda usiku hwekupera.", "expected_severity": "MEDIUM", "expected_category": "burglary", "language": "sn", "notes": "Burglary, Shona"},
   {"id": 10, "text": "Noise complaint: very loud party disturbing neighbours since midnight.", "expected_severity": "LOW", "expected_category": "noise_complaint", "language": "en", "notes": "Noise, Low"},
   {"id": 11, "text": "A woman reported being repeatedly threatened by her ex-partner via phone.", "expected_severity": "MEDIUM", "expected_category": "domestic_dispute", "language": "en", "notes": "Domestic threat, not physical"},
-  {"id": 12, "text": "Munhu ari kutyora gedhi ndokubira mabhegi emumugwagwa masikati.", "expected_severity": "MEDIUM", "expected_category": "theft", "language": "sn", "notes": "Bag snatching, Shona"},
+  {"id": 12, "text": "Munhu ari kupaza gedhi arikuda kuba mabhegi masikati.", "expected_severity": "MEDIUM", "expected_category": "theft", "language": "sn", "notes": "Bag snatching, Shona"},
   {"id": 13, "text": "There was a fraud attempt at an ATM — someone installing a skimming device.", "expected_severity": "MEDIUM", "expected_category": "fraud", "language": "en", "notes": "ATM fraud"},
   {"id": 14, "text": "Someone was pushed and injured during an argument in the market.", "expected_severity": "MEDIUM", "expected_category": "assault", "language": "en", "notes": "Physical assault, past tense"},
   {"id": 15, "text": "Umlenze uphukile emponjeni ngenxa yokulwa phakathi kwabantu ababili.", "expected_severity": "MEDIUM", "expected_category": "assault", "language": "nd", "notes": "Assault Ndebele"},

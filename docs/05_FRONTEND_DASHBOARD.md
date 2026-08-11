@@ -25,7 +25,6 @@ cd frontend/
 npx create-react-app . --template cra-template
 # OR if React 18 + Vite is available:
 npm create vite@latest . -- --template react
-
 # Install dependencies
 npm install react-leaflet leaflet axios react-router-dom recharts
 npm install -D tailwindcss postcss autoprefixer

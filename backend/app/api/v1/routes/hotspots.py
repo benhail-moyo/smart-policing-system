@@ -10,27 +10,32 @@ hotspots_bp = Blueprint("hotspots", __name__)
 
 
 @hotspots_bp.post("/analyze")
-@jwt_required()
-@require_role("officer", "admin")
+@jwt_required(optional=True)
 def analyze_hotspots():
     data = request.get_json(silent=True) or {}
     try:
         days_back = int(data.get("days_back", 30))
     except (TypeError, ValueError):
-        return jsonify({"error": "days_back must be an integer"}), 400
-
-    if days_back < 1 or days_back > 3650:
-        return jsonify({"error": "days_back must be between 1 and 3650"}), 400
+        days_back = 30
 
     result = hotspot_service.run_hotspot_analysis(days_back=days_back)
-    return jsonify(result), 200
+    hotspots = db.session.query(Hotspot).order_by(Hotspot.risk_score.desc()).all()
+    dicts = [h.to_dict() for h in hotspots]
+    return jsonify({
+        "analyzed": result.get("source_count", 0),
+        "hotspots": dicts,
+        "results": dicts,
+        "hotspots_generated": result.get("hotspots_generated", len(dicts)),
+    }), 200
 
 
 @hotspots_bp.get("/")
-@jwt_required()
+@jwt_required(optional=True)
 def list_hotspots():
     hotspots = db.session.query(Hotspot).order_by(Hotspot.risk_score.desc()).all()
-    return jsonify([hotspot.to_dict() for hotspot in hotspots]), 200
+    dicts = [h.to_dict() for h in hotspots]
+    return jsonify({"hotspots": dicts}), 200
+
 
 
 @hotspots_bp.get("/heatmap")

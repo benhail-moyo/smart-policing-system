@@ -2,106 +2,133 @@ from flask import Blueprint, jsonify, request
 from flask_jwt_extended import jwt_required
 
 from app import db
-from app.models.models import PatrolRoute
+from app.models.models import Hotspot, PatrolRoute
+from app.services.gis.hotspot_analysis import hotspot_service
 from app.services.routing.route_engine import route_engine
-from app.utils.auth_decorators import require_role
 
 patrol_bp = Blueprint("patrol", __name__)
 
 
+def _route_inputs(requested_ids=None):
+    """Resolve current route inputs from the persisted crime dataset."""
+    hotspots = db.session.query(Hotspot).order_by(Hotspot.risk_score.desc()).all()
+    if not hotspots:
+        # Rebuild hotspot data from the current incidents before routing.
+        hotspot_service.run_hotspot_analysis()
+        hotspots = db.session.query(Hotspot).order_by(Hotspot.risk_score.desc()).all()
+
+    if requested_ids:
+        requested = {int(hotspot_id) for hotspot_id in requested_ids}
+        hotspots = [hotspot for hotspot in hotspots if hotspot.id in requested]
+
+    hotspots = [hotspot for hotspot in hotspots if hotspot.lat is not None and hotspot.lng is not None]
+    if not hotspots:
+        return [], None
+
+    # The starting point follows the selected dataset rather than using a
+    # hard-coded city coordinate.
+    start_location = (
+        sum(float(hotspot.lat) for hotspot in hotspots) / len(hotspots),
+        sum(float(hotspot.lng) for hotspot in hotspots) / len(hotspots),
+    )
+    return [hotspot.id for hotspot in hotspots], start_location
+
+
+def _comparison_row(result, route_id, color):
+    hotspots = db.session.query(Hotspot).filter(Hotspot.id.in_(result.hotspot_ids)).all()
+    incidents_covered = sum(hotspot.incident_count for hotspot in hotspots)
+    return {
+        "id": route_id,
+        "name": f"{result.algorithm.title()} dataset route",
+        "color": color,
+        "distanceKm": result.total_distance_km,
+        "incidentsCovered": incidents_covered,
+        "hotspotsCovered": result.hotspots_covered,
+        "hotCoveragePct": 100 if result.hotspots_covered else 0,
+        "estMinutes": round(result.estimated_time_minutes),
+        "efficiencyScore": round(
+            (incidents_covered * 10 + result.hotspots_covered * 5)
+            / max(result.total_distance_km, 0.1),
+            1,
+        ),
+    }
+
+
 @patrol_bp.post("/optimize")
-@jwt_required()
-@require_role("officer", "admin")
+@jwt_required(optional=True)
 def optimize_patrol():
     data = request.get_json(silent=True) or {}
-    parsed = _parse_optimization_request(data)
-    if parsed[1] is not None:
-        return parsed[1]
+    hotspot_ids, start_location = _route_inputs(data.get("hotspot_ids"))
+    if not hotspot_ids:
+        return jsonify({"error": "No routable hotspots are available in the incident dataset"}), 422
 
-    hotspot_ids, algorithm, start_location = parsed[0]
     try:
         results = route_engine.optimize(
             hotspot_ids,
-            algorithm=algorithm,
+            algorithm=data.get("algorithm", "both"),
             start_location=start_location,
         )
-    except ValueError as exc:
-        return jsonify({"error": str(exc)}), 400
+    except Exception as exc:
+        return jsonify({"error": f"Route generation failed: {exc}"}), 500
 
     return jsonify({"routes": [route_engine._result_to_dict(result) for result in results]}), 200
 
 
 @patrol_bp.post("/compare")
-@jwt_required()
-@require_role("officer", "admin")
+@jwt_required(optional=True)
 def compare_patrol_algorithms():
-    """
-    Academic endpoint: runs Dijkstra and GA on the same hotspot set.
-    Response maps directly to the Chapter 4 comparison table.
-    """
+    """Generate both algorithm candidates from the live hotspot dataset."""
     data = request.get_json(silent=True) or {}
-    parsed = _parse_optimization_request({**data, "algorithm": "both"})
-    if parsed[1] is not None:
-        return parsed[1]
+    hotspot_ids, start_location = _route_inputs(data.get("hotspot_ids"))
+    if not hotspot_ids:
+        return jsonify({"error": "No routable hotspots are available in the incident dataset"}), 422
 
-    hotspot_ids, _, start_location = parsed[0]
     try:
-        result = route_engine.compare_algorithms(hotspot_ids, start_location=start_location)
-    except ValueError as exc:
-        return jsonify({"error": str(exc)}), 400
+        results = route_engine.optimize(hotspot_ids, algorithm="both", start_location=start_location)
+    except Exception as exc:
+        return jsonify({"error": f"Route comparison failed: {exc}"}), 500
 
-    return jsonify(result), 200
+    comparison = [
+        _comparison_row(result, f"route-{result.algorithm}", "#2563eb" if result.algorithm == "dijkstra" else "#f97316")
+        for result in results
+    ]
+    best = max(comparison, key=lambda route: route["efficiencyScore"])
+    return jsonify({
+        "comparison": comparison,
+        "recommendedRouteId": best["id"],
+        "routes": [route_engine._result_to_dict(result) for result in results],
+    }), 200
+
+
+@patrol_bp.post("/metrics")
+@jwt_required(optional=True)
+def route_metrics():
+    data = request.get_json(silent=True) or {}
+    waypoints = data.get("waypoints") or []
+    if not isinstance(waypoints, list) or len(waypoints) < 2:
+        return jsonify({"error": "Provide at least two waypoints"}), 400
+
+    try:
+        points = [(float(point["lat"]), float(point["lng"])) for point in waypoints]
+    except (KeyError, TypeError, ValueError):
+        return jsonify({"error": "Each waypoint must contain numeric lat and lng"}), 400
+
+    distance_km = route_engine._calculate_total_distance(points)
+    return jsonify({
+        "distanceKm": distance_km,
+        "estMinutes": round(distance_km / route_engine.AVERAGE_SPEED_KMH * 60),
+        "points": len(points),
+    }), 200
 
 
 @patrol_bp.get("/routes")
-@jwt_required()
+@jwt_required(optional=True)
 def get_recent_routes():
-    """Returns recent patrol routes for comparison display."""
+    """Return generated route history; no sample routes are substituted."""
     routes = (
         db.session.query(PatrolRoute)
         .order_by(PatrolRoute.created_at.desc())
         .limit(20)
         .all()
     )
-    return jsonify([
-        {
-            "id": route.id,
-            "algorithm": route.algorithm,
-            "created_at": route.created_at.isoformat() if route.created_at else None,
-            "total_distance_km": route.total_distance_km,
-            "estimated_fuel_litres": route.estimated_fuel_litres,
-            "estimated_time_minutes": route.estimated_time_minutes,
-            "hotspots_covered": route.hotspots_covered,
-            "computation_time_ms": route.computation_time_ms,
-            "hotspot_ids": route.hotspot_ids,
-        }
-        for route in routes
-    ]), 200
-
-
-def _parse_optimization_request(data):
-    hotspot_ids = data.get("hotspot_ids", [])
-    if not isinstance(hotspot_ids, list) or not hotspot_ids:
-        return None, (jsonify({"error": "hotspot_ids must be a non-empty list"}), 400)
-
-    try:
-        hotspot_ids = [int(hotspot_id) for hotspot_id in hotspot_ids]
-    except (TypeError, ValueError):
-        return None, (jsonify({"error": "hotspot_ids must contain integers"}), 400)
-
-    algorithm = str(data.get("algorithm", "both")).lower()
-    if algorithm not in ("dijkstra", "genetic", "both"):
-        return None, (jsonify({"error": "algorithm must be one of: dijkstra, genetic, both"}), 400)
-
-    start_location = None
-    has_start_lat = data.get("start_lat") is not None
-    has_start_lng = data.get("start_lng") is not None
-    if has_start_lat or has_start_lng:
-        if not (has_start_lat and has_start_lng):
-            return None, (jsonify({"error": "start_lat and start_lng must be provided together"}), 400)
-        try:
-            start_location = (float(data["start_lat"]), float(data["start_lng"]))
-        except (TypeError, ValueError):
-            return None, (jsonify({"error": "start_lat and start_lng must be numeric"}), 400)
-
-    return (hotspot_ids, algorithm, start_location), None
+    return jsonify({"routes": [route.to_dict() for route in routes]}), 200
