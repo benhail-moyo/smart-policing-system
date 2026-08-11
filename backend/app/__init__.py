@@ -63,5 +63,11 @@ def create_app(config_name: str = "development") -> Flask:
     def health():
         return {"status": "ok", "service": "crime-watch-api"}, 200
 
+    # Global JSON error handler to ensure API returns JSON on uncaught exceptions
+    @app.errorhandler(Exception)
+    def handle_exception(err):
+        # Let Flask log the exception as usual, but return a JSON payload
+        app.logger.exception("Unhandled exception: %s", err)
+        return ({"error": "Internal server error", "details": str(err)}, 500)
     return app
 

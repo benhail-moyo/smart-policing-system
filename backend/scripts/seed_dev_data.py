@@ -8,9 +8,6 @@ from datetime import datetime
 
 from app import create_app, db
 from app.models.models import User, Incident
-from geoalchemy2.shape import from_shape
-from shapely.geometry import Point
-
 
 def main():
     app = create_app('development')
@@ -42,7 +39,8 @@ def main():
                 triage_summary='Dev seed data',
                 raw_gemini_response=None,
                 status='TRIAGED',
-                location=from_shape(Point(lng, lat), srid=4326),
+                lat=lat,
+                lng=lng,
                 location_description='Dev seed',
                 created_at=datetime.utcnow(),
             )

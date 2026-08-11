@@ -48,6 +48,7 @@ const PRIORITY_ICON: Record<string, React.ReactNode> = {
 function ReportInner() {
   const [type, setType] = useState<string>(CRIME_TYPES[0]);
   const [description, setDescription] = useState("");
+  const [occurredAt, setOccurredAt] = useState("");
   const [severity, setSeverity] = useState(3);
   const [suburb, setSuburb] = useState("");
   const [point, setPoint] = useState<{ lat: number; lng: number } | null>(
@@ -71,6 +72,7 @@ function ReportInner() {
         body: JSON.stringify({
           type,
           description,
+          occurredAt: occurredAt || undefined,
           severity,
           suburb,
           lat: point.lat,
@@ -79,6 +81,7 @@ function ReportInner() {
       });
       setResult(res.triage);
       setDescription("");
+      setOccurredAt("");
       setSuburb("");
       setPoint(null);
     } catch (err) {
@@ -127,6 +130,18 @@ function ReportInner() {
               required
               rows={3}
               placeholder="What happened?"
+              className="w-full rounded-lg border border-slate-700 bg-slate-800 px-3 py-2.5 text-sm"
+            />
+          </div>
+
+          <div>
+            <label className="mb-1 block text-xs font-medium text-slate-400">
+              Date and time of incident
+            </label>
+            <input
+              type="datetime-local"
+              value={occurredAt}
+              onChange={(e) => setOccurredAt(e.target.value)}
               className="w-full rounded-lg border border-slate-700 bg-slate-800 px-3 py-2.5 text-sm"
             />
           </div>

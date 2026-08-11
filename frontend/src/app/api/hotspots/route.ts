@@ -6,7 +6,7 @@ export async function GET(request: Request) {
   const token = header?.startsWith("Bearer ") ? header.slice(7) : header;
 
   try {
-    const response = await fetch(`${backendApiUrl}/hotspots`, {
+    const response = await fetch(`${backendApiUrl}/hotspots/`, {
       method: 'GET',
       headers: { 
         'Content-Type': 'application/json',

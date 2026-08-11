@@ -51,6 +51,7 @@ function MapInner() {
   const [hotspots, setHotspots] = useState<MapHotspot[]>([]);
   const [routes, setRoutes] = useState<MapRoute[]>([]);
   const [showIncidents, setShowIncidents] = useState(true);
+  const [showHotspots, setShowHotspots] = useState(true);
   const [showRoutes, setShowRoutes] = useState(false);
   const [analyzing, setAnalyzing] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
@@ -177,6 +178,13 @@ function MapInner() {
           >
             <MapPin className="h-3.5 w-3.5" />
             Incidents
+          </ToggleChip>
+          <ToggleChip
+            active={showHotspots}
+            onClick={() => setShowHotspots((v) => !v)}
+          >
+            <Zap className="h-3.5 w-3.5" />
+            Hotspots
           </ToggleChip>
           <ToggleChip
             active={showRoutes}
@@ -329,7 +337,7 @@ function MapInner() {
       <div className="relative flex-1">
         <CrimeMap
           incidents={incidents}
-          hotspots={hotspots}
+          hotspots={showHotspots ? hotspots : []}
           routes={showRoutes ? routes : []}
           showIncidents={showIncidents}
         />

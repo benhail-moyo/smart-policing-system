@@ -38,6 +38,12 @@ type Comparison = {
   efficiencyScore: number;
 };
 
+type CompareResponse = {
+  comparison: Comparison[];
+  recommendedRouteId: string;
+  routes: MapRoute[];
+};
+
 function PatrolInner() {
   const router = useRouter();
   const [allowed, setAllowed] = useState<boolean | null>(null);
@@ -60,12 +66,12 @@ function PatrolInner() {
     setLoading(true);
     setError(null);
     try {
-      const res = await api<{
-        comparison: Comparison[];
-        recommendedRouteId: string;
-      }>("/api/patrol/compare", { method: "POST" });
+      const res = await api<CompareResponse>("/api/patrol/compare", { method: "POST" });
       setComparison(res.comparison);
       setRecommended(res.recommendedRouteId);
+      if (res.routes && res.routes.length > 0) {
+        setRoutes(res.routes);
+      }
     } catch (e) {
       setError(e instanceof Error ? e.message : "Comparison failed");
     } finally {

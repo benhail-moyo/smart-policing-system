@@ -78,7 +78,7 @@ class RouteEngine:
         if algorithm not in ("dijkstra", "genetic", "both"):
             raise ValueError("algorithm must be one of: dijkstra, genetic, both")
 
-        requested_ids = [int(hotspot_id) for hotspot_id in hotspot_ids]
+        requested_ids = list(dict.fromkeys(int(hotspot_id) for hotspot_id in hotspot_ids))
         hotspots_by_id = {
             hotspot.id: hotspot
             for hotspot in db.session.query(Hotspot).filter(Hotspot.id.in_(requested_ids)).all()
@@ -177,47 +177,55 @@ class RouteEngine:
         )
 
     def _run_genetic(self, waypoints: list, hotspots: List[Hotspot]) -> RouteResult:
-        from app.services.routing.genetic_solver import GeneticSolver
-        from flask import current_app
-        start = time.perf_counter()
-        weights = [h.risk_score for h in hotspots]
-        if len(waypoints) > len(hotspots):
-            weights = [0.0] + weights
-        solver = GeneticSolver(
-            waypoints=waypoints,
-            hotspot_weights=weights,
-            pop_size=current_app.config.get("GA_POPULATION_SIZE", 100),
-            generations=current_app.config.get("GA_GENERATIONS", 200),
-            mutation_rate=current_app.config.get("GA_MUTATION_RATE", 0.02),
-            crossover_rate=current_app.config.get("GA_CROSSOVER_RATE", 0.8),
-        )
-        route = solver.solve()
-        elapsed_ms = (time.perf_counter() - start) * 1000
+        try:
+            from app.services.routing.genetic_solver import GeneticSolver
+            from flask import current_app
 
-        distance = self._calculate_total_distance(route)
-        return RouteResult(
-            algorithm="genetic",
-            waypoints=route,
-            total_distance_km=distance,
-            estimated_fuel_litres=distance * self.FUEL_CONSUMPTION_L_PER_KM,
-            estimated_time_minutes=distance / self.AVERAGE_SPEED_KMH * 60,
-            hotspots_covered=len(hotspots),
-            computation_time_ms=elapsed_ms,
-            hotspot_ids=[h.id for h in hotspots],
-            route_explanation=[
-                {"step": step + 1, "lat": point[0], "lng": point[1]}
-                for step, point in enumerate(route)
-            ],
-            convergence_file=solver.save_convergence_data(),
-        )
+            start = time.perf_counter()
+            weights = [h.risk_score for h in hotspots]
+            if len(waypoints) > len(hotspots):
+                weights = [0.0] + weights
+            solver = GeneticSolver(
+                waypoints=waypoints,
+                hotspot_weights=weights,
+                pop_size=current_app.config.get("GA_POPULATION_SIZE", 100),
+                generations=current_app.config.get("GA_GENERATIONS", 200),
+                mutation_rate=current_app.config.get("GA_MUTATION_RATE", 0.02),
+                crossover_rate=current_app.config.get("GA_CROSSOVER_RATE", 0.8),
+            )
+            route = solver.solve()
+            elapsed_ms = (time.perf_counter() - start) * 1000
+
+            distance = self._calculate_total_distance(route)
+            return RouteResult(
+                algorithm="genetic",
+                waypoints=route,
+                total_distance_km=distance,
+                estimated_fuel_litres=distance * self.FUEL_CONSUMPTION_L_PER_KM,
+                estimated_time_minutes=distance / self.AVERAGE_SPEED_KMH * 60,
+                hotspots_covered=len(hotspots),
+                computation_time_ms=elapsed_ms,
+                hotspot_ids=[h.id for h in hotspots],
+                route_explanation=[
+                    {"step": step + 1, "lat": point[0], "lng": point[1]}
+                    for step, point in enumerate(route)
+                ],
+                convergence_file=solver.save_convergence_data(),
+            )
+        except ImportError as imp_err:
+            logger.warning("GeneticSolver unavailable: %s — falling back to Dijkstra route", imp_err)
+            # Fall back to deterministic baseline
+            return self._run_dijkstra(waypoints, hotspots)
+        except Exception as exc:
+            logger.exception("Genetic solver failed: %s", exc)
+            # Fall back to deterministic baseline on any GA failure
+            return self._run_dijkstra(waypoints, hotspots)
 
     def _hotspots_to_waypoints(self, hotspots: List[Hotspot]) -> list:
-        from geoalchemy2.shape import to_shape
         waypoints = []
         for h in hotspots:
-            if h.centroid:
-                pt = to_shape(h.centroid)
-                waypoints.append((pt.y, pt.x))  # (lat, lng)
+            if h.lat is not None and h.lng is not None:
+                waypoints.append((float(h.lat), float(h.lng)))
         return waypoints
 
     def _calculate_total_distance(self, waypoints: list) -> float:
@@ -235,14 +243,9 @@ class RouteEngine:
         return round(total, 3)
 
     def _save_route(self, result: RouteResult):
-        from shapely.geometry import LineString
-        from geoalchemy2.shape import from_shape
-        line = None
-        if len(result.waypoints) >= 2:
-            line = LineString([(lng, lat) for lat, lng in result.waypoints])
         route = PatrolRoute(
             algorithm=result.algorithm,
-            route_geometry=from_shape(line, srid=4326) if line else None,
+            waypoints=[{"lat": lat, "lng": lng} for lat, lng in result.waypoints],
             total_distance_km=result.total_distance_km,
             estimated_fuel_litres=result.estimated_fuel_litres,
             estimated_time_minutes=result.estimated_time_minutes,

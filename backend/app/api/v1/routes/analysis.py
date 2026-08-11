@@ -15,5 +15,9 @@ def generate_report():
     except (TypeError, ValueError):
         period_days = 30
 
-    report = analysis_report_service.generate_report(period_days=period_days)
+    try:
+        report = analysis_report_service.generate_report(period_days=period_days)
+    except Exception as exc:
+        return jsonify({"error": f"Analysis generation failed: {exc}"}), 500
+
     return jsonify({"report": report}), 200

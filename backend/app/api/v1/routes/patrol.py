@@ -3,234 +3,132 @@ from flask_jwt_extended import jwt_required
 
 from app import db
 from app.models.models import Hotspot, PatrolRoute
+from app.services.gis.hotspot_analysis import hotspot_service
 from app.services.routing.route_engine import route_engine
 
 patrol_bp = Blueprint("patrol", __name__)
+
+
+def _route_inputs(requested_ids=None):
+    """Resolve current route inputs from the persisted crime dataset."""
+    hotspots = db.session.query(Hotspot).order_by(Hotspot.risk_score.desc()).all()
+    if not hotspots:
+        # Rebuild hotspot data from the current incidents before routing.
+        hotspot_service.run_hotspot_analysis()
+        hotspots = db.session.query(Hotspot).order_by(Hotspot.risk_score.desc()).all()
+
+    if requested_ids:
+        requested = {int(hotspot_id) for hotspot_id in requested_ids}
+        hotspots = [hotspot for hotspot in hotspots if hotspot.id in requested]
+
+    hotspots = [hotspot for hotspot in hotspots if hotspot.lat is not None and hotspot.lng is not None]
+    if not hotspots:
+        return [], None
+
+    # The starting point follows the selected dataset rather than using a
+    # hard-coded city coordinate.
+    start_location = (
+        sum(float(hotspot.lat) for hotspot in hotspots) / len(hotspots),
+        sum(float(hotspot.lng) for hotspot in hotspots) / len(hotspots),
+    )
+    return [hotspot.id for hotspot in hotspots], start_location
+
+
+def _comparison_row(result, route_id, color):
+    hotspots = db.session.query(Hotspot).filter(Hotspot.id.in_(result.hotspot_ids)).all()
+    incidents_covered = sum(hotspot.incident_count for hotspot in hotspots)
+    return {
+        "id": route_id,
+        "name": f"{result.algorithm.title()} dataset route",
+        "color": color,
+        "distanceKm": result.total_distance_km,
+        "incidentsCovered": incidents_covered,
+        "hotspotsCovered": result.hotspots_covered,
+        "hotCoveragePct": 100 if result.hotspots_covered else 0,
+        "estMinutes": round(result.estimated_time_minutes),
+        "efficiencyScore": round(
+            (incidents_covered * 10 + result.hotspots_covered * 5)
+            / max(result.total_distance_km, 0.1),
+            1,
+        ),
+    }
 
 
 @patrol_bp.post("/optimize")
 @jwt_required(optional=True)
 def optimize_patrol():
     data = request.get_json(silent=True) or {}
-    hotspot_ids = data.get("hotspot_ids")
+    hotspot_ids, start_location = _route_inputs(data.get("hotspot_ids"))
     if not hotspot_ids:
-        hotspots = db.session.query(Hotspot).all()
-        hotspot_ids = [h.id for h in hotspots]
-
-    if not hotspot_ids:
-        # Fallback sample hotspot IDs
-        hotspot_ids = [1, 2]
+        return jsonify({"error": "No routable hotspots are available in the incident dataset"}), 422
 
     try:
         results = route_engine.optimize(
             hotspot_ids,
             algorithm=data.get("algorithm", "both"),
-            start_location=(-17.8292, 31.0522),
+            start_location=start_location,
         )
-    except Exception:
-        results = []
+    except Exception as exc:
+        return jsonify({"error": f"Route generation failed: {exc}"}), 500
 
-    routes = [route_engine._result_to_dict(result) for result in results]
-    return jsonify({"routes": routes}), 200
+    return jsonify({"routes": [route_engine._result_to_dict(result) for result in results]}), 200
 
 
 @patrol_bp.post("/compare")
 @jwt_required(optional=True)
 def compare_patrol_algorithms():
-    """
-    Runs Dijkstra and GA optimization and returns structured comparison data.
-    """
+    """Generate both algorithm candidates from the live hotspot dataset."""
     data = request.get_json(silent=True) or {}
-    hotspots = db.session.query(Hotspot).all()
-    hotspot_ids = data.get("hotspot_ids") or [h.id for h in hotspots]
-
+    hotspot_ids, start_location = _route_inputs(data.get("hotspot_ids"))
     if not hotspot_ids:
-        hotspot_ids = [1, 2]
-
-    comparison_data = []
-    sample_routes = [
-        {
-            "id": "route-a",
-            "name": "Route A — CBD & Avenues (Dijkstra)",
-            "color": "#2563eb",
-            "waypoints": [
-                {"lat": -17.8292, "lng": 31.0522},
-                {"lat": -17.8252, "lng": 31.0475},
-                {"lat": -17.8189, "lng": 31.0433},
-                {"lat": -17.8151, "lng": 31.0512},
-                {"lat": -17.8215, "lng": 31.0585},
-                {"lat": -17.8292, "lng": 31.0522},
-            ],
-            "distanceKm": 8.4,
-            "incidentsCovered": 18,
-            "hotspotsCovered": 4,
-            "hotCoveragePct": 80,
-            "estMinutes": 32,
-            "efficiencyScore": 88,
-        },
-        {
-            "id": "route-b",
-            "name": "Route B — Mbare & Southern Ring (Genetic Alg)",
-            "color": "#f97316",
-            "waypoints": [
-                {"lat": -17.8292, "lng": 31.0522},
-                {"lat": -17.8451, "lng": 31.0389},
-                {"lat": -17.8564, "lng": 31.0301},
-                {"lat": -17.8611, "lng": 31.0455},
-                {"lat": -17.8489, "lng": 31.0603},
-                {"lat": -17.8292, "lng": 31.0522},
-            ],
-            "distanceKm": 12.1,
-            "incidentsCovered": 14,
-            "hotspotsCovered": 3,
-            "hotCoveragePct": 60,
-            "estMinutes": 45,
-            "efficiencyScore": 72,
-        },
-    ]
+        return jsonify({"error": "No routable hotspots are available in the incident dataset"}), 422
 
     try:
-        raw_cmp = route_engine.compare_algorithms(hotspot_ids, start_location=(-17.8292, 31.0522))
-        dijk = raw_cmp.get("dijkstra", {})
-        ga = raw_cmp.get("genetic", {})
+        results = route_engine.optimize(hotspot_ids, algorithm="both", start_location=start_location)
+    except Exception as exc:
+        return jsonify({"error": f"Route comparison failed: {exc}"}), 500
 
-        comparison_data = [
-            {
-                "id": "route-a",
-                "name": "Route A — Dijkstra Shortest Path",
-                "color": "#2563eb",
-                "distanceKm": dijk.get("total_distance_km", 8.4),
-                "incidentsCovered": 18,
-                "hotspotsCovered": dijk.get("hotspots_covered", 4),
-                "hotCoveragePct": 80,
-                "estMinutes": round(dijk.get("estimated_time_minutes", 32)),
-                "efficiencyScore": round(80 * 1.1 - dijk.get("total_distance_km", 8.4)),
-            },
-            {
-                "id": "route-b",
-                "name": "Route B — Genetic Algorithm Global Search",
-                "color": "#f97316",
-                "distanceKm": ga.get("total_distance_km", 12.1),
-                "incidentsCovered": 14,
-                "hotspotsCovered": ga.get("hotspots_covered", 3),
-                "hotCoveragePct": 60,
-                "estMinutes": round(ga.get("estimated_time_minutes", 45)),
-                "efficiencyScore": round(60 * 1.1 - ga.get("total_distance_km", 12.1)),
-            },
-        ]
-    except Exception:
-        comparison_data = [
-            {
-                "id": r["id"],
-                "name": r["name"],
-                "color": r["color"],
-                "distanceKm": r["distanceKm"],
-                "incidentsCovered": r["incidentsCovered"],
-                "hotspotsCovered": r["hotspotsCovered"],
-                "hotCoveragePct": r["hotCoveragePct"],
-                "estMinutes": r["estMinutes"],
-                "efficiencyScore": r["efficiencyScore"],
-            }
-            for r in sample_routes
-        ]
-
-    best = comparison_data[0] if comparison_data else sample_routes[0]
-
+    comparison = [
+        _comparison_row(result, f"route-{result.algorithm}", "#2563eb" if result.algorithm == "dijkstra" else "#f97316")
+        for result in results
+    ]
+    best = max(comparison, key=lambda route: route["efficiencyScore"])
     return jsonify({
-        "comparison": comparison_data,
+        "comparison": comparison,
         "recommendedRouteId": best["id"],
-        "routes": sample_routes,
+        "routes": [route_engine._result_to_dict(result) for result in results],
     }), 200
 
 
 @patrol_bp.post("/metrics")
 @jwt_required(optional=True)
 def route_metrics():
-    """
-    Compute simple route metrics from posted waypoints.
-
-    Request JSON: { "waypoints": [{ "lat": float, "lng": float }, ...] }
-    Response: { "distanceKm": float, "estMinutes": int, "points": int }
-    """
     data = request.get_json(silent=True) or {}
     waypoints = data.get("waypoints") or []
     if not isinstance(waypoints, list) or len(waypoints) < 2:
         return jsonify({"error": "Provide at least two waypoints"}), 400
 
-    def haversine(a, b):
-        from math import radians, sin, cos, asin, sqrt
-        R = 6371.0
-        dlat = radians(b["lat"] - a["lat"])
-        dlng = radians(b["lng"] - a["lng"])
-        lat1 = radians(a["lat"]) if a.get("lat") is not None else 0
-        lat2 = radians(b["lat"]) if b.get("lat") is not None else 0
-        h = sin(dlat / 2) ** 2 + cos(lat1) * cos(lat2) * sin(dlng / 2) ** 2
-        return 2 * R * asin(sqrt(h))
+    try:
+        points = [(float(point["lat"]), float(point["lng"])) for point in waypoints]
+    except (KeyError, TypeError, ValueError):
+        return jsonify({"error": "Each waypoint must contain numeric lat and lng"}), 400
 
-    total_km = 0.0
-    prev = None
-    for p in waypoints:
-        if prev is not None:
-            try:
-                total_km += float(haversine(prev, p))
-            except Exception:
-                continue
-        prev = p
-
-    # Estimate minutes assuming average patrol speed ~15 km/h -> 4 minutes per km
-    est_minutes = round(total_km * 4)
-
+    distance_km = route_engine._calculate_total_distance(points)
     return jsonify({
-        "distanceKm": round(total_km, 2),
-        "estMinutes": est_minutes,
-        "points": len(waypoints),
+        "distanceKm": distance_km,
+        "estMinutes": round(distance_km / route_engine.AVERAGE_SPEED_KMH * 60),
+        "points": len(points),
     }), 200
 
 
 @patrol_bp.get("/routes")
 @jwt_required(optional=True)
 def get_recent_routes():
-    """Returns recent patrol routes for comparison display."""
+    """Return generated route history; no sample routes are substituted."""
     routes = (
         db.session.query(PatrolRoute)
         .order_by(PatrolRoute.created_at.desc())
         .limit(20)
         .all()
     )
-
-    if not routes:
-        # Default sample routes
-        sample_routes = [
-            {
-                "id": "route-a",
-                "name": "Route A — CBD & Avenues",
-                "color": "#2563eb",
-                "distanceKm": 8.4,
-                "waypoints": [
-                    {"lat": -17.8292, "lng": 31.0522},
-                    {"lat": -17.8252, "lng": 31.0475},
-                    {"lat": -17.8189, "lng": 31.0433},
-                    {"lat": -17.8151, "lng": 31.0512},
-                    {"lat": -17.8215, "lng": 31.0585},
-                    {"lat": -17.8292, "lng": 31.0522},
-                ],
-            },
-            {
-                "id": "route-b",
-                "name": "Route B — Mbare & Southern Ring",
-                "color": "#f97316",
-                "distanceKm": 12.1,
-                "waypoints": [
-                    {"lat": -17.8292, "lng": 31.0522},
-                    {"lat": -17.8451, "lng": 31.0389},
-                    {"lat": -17.864, "lng": 31.0301},
-                    {"lat": -17.8611, "lng": 31.0455},
-                    {"lat": -17.8489, "lng": 31.0603},
-                    {"lat": -17.8292, "lng": 31.0522},
-                ],
-            },
-        ]
-        return jsonify({"routes": sample_routes}), 200
-
     return jsonify({"routes": [route.to_dict() for route in routes]}), 200
-

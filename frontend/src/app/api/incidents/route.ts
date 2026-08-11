@@ -31,7 +31,7 @@ export async function GET(request: Request) {
       return Response.json(data, { status: response.status });
     }
 
-    return Response.json(data);
+    return Response.json(data, { status: response.status });
   } catch (error) {
     return Response.json(
       { error: "Failed to connect to incidents service" },
@@ -71,6 +71,7 @@ export async function POST(request: Request) {
         lng: Number(body.lng),
         severity: body.severity,
         suburb: body.suburb,
+        occurredAt: body.occurredAt,
       }),
     });
 
@@ -80,7 +81,7 @@ export async function POST(request: Request) {
       return Response.json(data, { status: response.status });
     }
 
-    return Response.json(data);
+    return Response.json(data, { status: response.status });
   } catch (error) {
     return Response.json(
       { error: "Failed to connect to incidents service" },

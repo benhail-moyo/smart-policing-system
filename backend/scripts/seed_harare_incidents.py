@@ -12,9 +12,6 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from geoalchemy2.shape import from_shape
-from shapely.geometry import Point
-
 from app import create_app, db
 from app.models.models import Incident, User
 
@@ -127,7 +124,10 @@ def main():
                     triage_summary=make_summary(category, zone["name"]),
                     raw_gemini_response=None,
                     status="TRIAGED",
-                    location=from_shape(Point(lng, lat), srid=4326),
+                    # The active model stores portable scalar coordinates rather
+                    # than a PostGIS geometry column.
+                    lat=lat,
+                    lng=lng,
                     location_description=f"{zone['name']}, Harare",
                     reported_by_id=officer.id,
                     created_at=now - timedelta(days=days_ago, hours=random.randint(0, 23)),

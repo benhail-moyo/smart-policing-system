@@ -68,6 +68,8 @@ class Incident(db.Model):
     reported_by = db.relationship("User", back_populates="incidents")
 
     created_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc))
+    # When the event happened, distinct from when the report was submitted.
+    occurred_at = db.Column(db.DateTime, nullable=True)
 
     def to_dict(self):
         lat = self.lat or -17.8292
@@ -111,6 +113,8 @@ class Incident(db.Model):
             "reportedBy": reporter_name,
             "created_at": self.created_at.isoformat() if self.created_at else None,
             "createdAt": self.created_at.isoformat() if self.created_at else None,
+            "occurred_at": self.occurred_at.isoformat() if self.occurred_at else None,
+            "occurredAt": self.occurred_at.isoformat() if self.occurred_at else None,
         }
 
 

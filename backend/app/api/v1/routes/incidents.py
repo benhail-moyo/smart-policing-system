@@ -8,6 +8,7 @@ Endpoints:
   GET  /api/v1/incidents/stats   Count by severity (dashboard use)
 """
 import re
+from datetime import datetime, timezone
 
 from flask import Blueprint, jsonify, request
 from flask_jwt_extended import jwt_required, get_jwt_identity
@@ -31,6 +32,19 @@ def _build_location(lat, lng):
         return from_shape(Point(float(lng), float(lat)), srid=4326)
     except (TypeError, ValueError):
         return None
+
+
+def _parse_occurred_at(value):
+    """Parse an optional ISO-8601 occurrence time supplied by the report form."""
+    if not value:
+        return None
+    if not isinstance(value, str):
+        raise ValueError("occurredAt must be an ISO-8601 date and time")
+    try:
+        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError as exc:
+        raise ValueError("occurredAt must be a valid date and time") from exc
+    return parsed.replace(tzinfo=timezone.utc) if parsed.tzinfo is None else parsed.astimezone(timezone.utc)
 
 
 # ── POST /api/v1/incidents/ ────────────────────────────────────────────────
@@ -60,7 +74,11 @@ def create_incident():
         return jsonify({"error": "Report exceeds maximum length of 5000 characters"}), 400
 
     # ── Run NLP triage ────────────────────────────────────────────────────
-    triage_result = triage_service.triage(raw_text)
+    try:
+        triage_result = triage_service.triage(raw_text)
+    except Exception as exc:
+        # Return a JSON error so frontend receives structured response
+        return jsonify({"error": f"Triage failed: {exc}"}), 500
 
     # If category or severity passed explicitly, respect/blend it
     category = data.get("type") or triage_result.get("category") or "General"
@@ -78,6 +96,10 @@ def create_incident():
     lat = data.get("lat") if data.get("lat") is not None else data.get("location_lat")
     lng = data.get("lng") if data.get("lng") is not None else data.get("location_lng")
     suburb = data.get("suburb") or data.get("location_description") or "Harare"
+    try:
+        occurred_at = _parse_occurred_at(data.get("occurredAt") or data.get("occurred_at"))
+    except ValueError as exc:
+        return jsonify({"error": str(exc)}), 400
 
     # ── Build and persist Incident ─────────────────────────────────────────
     # Persist incident using simplified lat/lng fields (SQLite-compatible schema)
@@ -94,6 +116,7 @@ def create_incident():
         lng=float(lng) if lng is not None else None,
         location_description=suburb,
         reported_by_id=user_id,
+        occurred_at=occurred_at,
     )
 
     db.session.add(incident)
