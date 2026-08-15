@@ -1,107 +1,181 @@
-# Implementation Prompt: Patrol Route Optimization Module (Crime-Watch)
+# Implementation Prompt: Road-Network Patrol Routing (Crime-Watch)
 
-## Context
-This is **not** a standalone app — it is a new capability inside the existing Crime-Watch monorepo:
+## Purpose and non-negotiable architecture
 
-- **Backend:** Flask, app factory pattern, PostgreSQL/PostGIS, GeoAlchemy2, JWT auth, existing structure at `backend/app/services/routing/`, `backend/app/services/gis/`, `backend/app/api/v1/routes/`
-- **Frontend:** Next.js (App Router), TypeScript, existing pages at `frontend/src/app/map/`, `frontend/src/app/patrol/`, existing API route handlers at `frontend/src/app/api/patrol/routes/` and `frontend/src/app/api/patrol/compare/` (these act as a thin BFF layer proxying to Flask — confirm this assumption before building, adjust prompt if the Next.js routes are meant to hold logic directly instead)
-- `leaflet` + `@types/leaflet` are already installed in `frontend/node_modules` — use `react-leaflet`, not vanilla Leaflet + HTML
+Implement road-network routing for the existing Crime-Watch monorepo. Leaflet is only responsible for displaying the returned route. It does not create, store, or traverse a road graph. The Flask backend must load a local, preprocessed OpenStreetMap (OSM) directed graph and run all routing locally.
 
-**Dissertation objective this maps to:** Objective 3 (Patrol Optimization Engine, Dijkstra vs Genetic Algorithm, target ≥15% fuel/response-time reduction) and Objective 4 (unified system). Chapter 3 requires the algorithms to be **implemented from scratch**, not called as black-box library functions — `networkx.dijkstra_path`, `pgr_dijkstra`, etc. are for benchmarking/comparison only, never for the primary implementation.
+This is an extension of the existing application, not a separate service.
 
-**Scope decision (per Chapter 1 delimitations):** road network graph is scoped to **1–2 metropolitan areas** (recommend Harare, optionally + Bulawayo), not the full Zimbabwe extract. Mention country-wide expansion as future work in Chapter 5, don't build it now.
+- Backend: Flask app factory. `patrol_bp` is already registered with URL prefix `/api/v1/patrol` in `backend/app/__init__.py`.
+- Frontend: Next.js App Router. Existing BFF handlers proxy requests to Flask using `backendApiUrl`; preserve that pattern.
+- Current map: `frontend/src/components/CrimeMap` is loaded client-side from `/map` and `/patrol`. Extend its existing Leaflet integration. Do not introduce `react-leaflet` unless it is deliberately added to `frontend/package.json`; it is not currently installed.
+- Existing APIs that must continue to work unchanged: `GET /api/v1/patrol/routes`, `POST /api/v1/patrol/optimize`, and `POST /api/v1/patrol/compare`.
+- Existing `DijkstraSolver` is a straight-line nearest-neighbour baseline, not Dijkstra. Replace or retire its routing role; do not label it Dijkstra in API results or dissertation output.
 
-**Hardware constraints:** local dev machine, Intel i5 (12th gen U-series), 8GB RAM. Preprocessing is a one-off local script — does not need Colab. Backend graph-in-memory footprint must stay well under available RAM (target: under 600MB for the scoped city graph).
+## Dissertation constraints
 
-**Cost constraint:** $0. No paid routing/geocoding APIs (no Google Maps, Mapbox Directions, OSRM SaaS). All graph computation runs locally in the existing Flask process.
+Objective 3 compares a deterministic multi-stop baseline with a Genetic Algorithm (GA). Use implementations written in this repository:
 
----
+- Implement point-to-point Dijkstra manually with `heapq`; no `networkx.dijkstra_path`, `pgr_dijkstra`, OSRM, or hosted directions API in the primary path.
+- Implement GA selection, Ordered Crossover, mutation, and elitism in local code. Do not use DEAP operators in the primary GA implementation.
+- Dijkstra is a shortest-path primitive, not a multi-stop route-ordering competitor. The comparison must be named **Dijkstra pairwise distances + nearest-neighbour ordering** versus **Dijkstra pairwise distances + GA ordering**.
+- The reported 15% saving is a target, never an acceptance criterion. Report measured results, including results below 15%.
 
-## Phase 1: Data Preprocessing (`backend/app/services/routing/preprocessor.py`)
+## Scope and data preparation
 
-One-off script, run locally, not part of the request/response path.
+Scope the initial graph to Harare metropolitan area. A second city may be added only after the single-city implementation and tests pass. Do not load the full Zimbabwe extract into the request process.
 
-1. Download the relevant `.osm.pbf` extract for the scoped city/cities (Geofabrik doesn't do city-level extracts for Zimbabwe directly — use a bounding-box extract tool like `osmium extract` against the Zimbabwe country file, or BBBike's city extract service, to cut down to Harare's metro bounding box before parsing).
-2. Parse with `osmnx` or `pyrosm`, filtering strictly to `network_type='drive'` (exclude footways, steps, cycleways, unpaved/unclassified tracks unless clearly drivable).
-3. Extract the largest strongly connected component to avoid dead-end/disconnected subgraphs.
-4. Keep only: **nodes** (`node_id`, `lat`, `lng`), **edges** (`u`, `v`, `length_m`, `geometry` as `[[lat,lng], ...]`).
-5. Export to `backend/ml/routing/data/{city}_drive_graph.json` (or `.gpickle`). Target: well under 50MB per city, loads in under 3 seconds.
-6. Log basic graph stats (node count, edge count, connectivity check) — you'll want these numbers for Chapter 4.
+Create `backend/app/services/routing/preprocessor.py` as a one-off command/script, outside the request path.
 
----
+1. Obtain an OSM PBF extract and crop it to an explicit, version-controlled Harare bounding polygon or bounding box. Record OSM source URL/date, crop bounds, and preprocessing date in graph metadata.
+2. Parse a drivable network using OSMnx or Pyrosm. Preserve OSM directionality and parallel edges. Do not create reverse edges for one-way roads.
+3. Retain the largest **weakly** connected component for the city graph. Keep its edges directed. Do not use the largest strongly connected component because it removes valid destinations such as cul-de-sacs and one-way access roads.
+4. Retain nodes: `id`, `lat`, `lng`.
+5. Retain directed edges: `u`, `v`, `key`, `length_m`, `geometry_latlng`, `highway`, `name`, `maxspeed`, and `oneway` when available. `geometry_latlng` is an internal list of `[lat, lng]` positions. Edge length is the initial routing weight.
+6. Serialize an immutable graph artifact to `backend/ml/routing/data/harare_drive_graph.json.gz` (or an equivalent documented binary format) plus a metadata JSON file. The format must preserve multiple `u -> v` edges.
+7. Log and persist node count, directed edge count, weak-component count, extraction bounds, artifact size, and preprocessing duration.
 
-## Phase 2: Spatial Indexing (`backend/app/services/routing/spatial_index.py`)
+The runtime graph must use an adjacency list, for example `dict[node_id, list[Edge]]`, rather than an adjacency matrix. It must fit well below 600 MB on the stated development hardware. Do not assert a universal 50 MB artifact or 3-second load time before measuring; record actual figures and set project-specific thresholds from those measurements.
 
-1. On Flask app startup (or lazily on first request, cached), build a `scipy.spatial.KDTree` over all node coordinates.
-2. Expose `get_nearest_node(lat, lng) -> node_id`, snapping an arbitrary click point to the nearest graph node in O(log N).
+## Runtime graph and snapping
 
----
+Create these modules under `backend/app/services/routing/`:
 
-## Phase 3: Core Algorithms (`backend/app/services/routing/algorithms/`) — written from scratch
+- `graph_store.py`: load the immutable graph once per Flask worker, expose `get_graph()`, status metadata, and a test-only reset hook.
+- `spatial_index.py`: build a read-only nearest-node index when the graph loads.
+- `algorithms/dijkstra.py`: manual Dijkstra implementation.
+- `algorithms/genetic_algorithm.py`: manual GA multi-stop optimizer.
+- `route_service.py`: input validation, snapping, pairwise paths, geometry stitching, and response construction.
 
-### `dijkstra.py`
-- Implement explicitly with `heapq` as the priority queue. Do not call `networkx.dijkstra_path` or any pre-built shortest-path function.
-- **Input:** `graph`, `start_node`, `end_node`
-- **Returns:** `path_nodes`, `total_distance_m`, `nodes_visited`, `execution_time_ms`
+Build the spatial index using coordinates appropriate for distance queries: use a projected local CRS with `cKDTree`, or use a Haversine-aware index with radians. A KDTree over raw longitude/latitude degrees is not an accurate distance metric. Return snap distance in metres and reject points farther than a configured limit (for example, 2 km) with a 422 response.
 
-### `a_star.py`
-- Implement with `heapq`, Haversine distance as the admissible heuristic.
-- Same input/output shape as Dijkstra, for direct comparison.
-- *(Note: your dissertation compares Dijkstra vs Genetic Algorithm, not A* vs Dijkstra — build A* only if you want an extra internal sanity check that your Dijkstra implementation is correct, since A* should match Dijkstra's distance exactly while visiting fewer nodes. Not required for Chapter 4 unless you want to widen the comparison.)*
+Do not mutate the loaded graph during a request. The graph and index must be safe for concurrent Flask requests. Lazy loading must be protected so only one request performs initialization; other requests either wait or receive a documented `503 graph_loading` response.
 
-### `genetic_algorithm.py`
-- For multi-stop patrol routes (3+ waypoints — the actual "patrol route" use case, as opposed to point-to-point).
-- Workflow:
-  1. Build an N×N pairwise distance matrix between stops using the Dijkstra implementation above (not straight-line distance — you want real road distance for a fair fuel comparison).
-  2. Population of random stop-order chromosomes.
-  3. Tournament selection, Ordered Crossover (OX), swap or inversion mutation.
-  4. Fitness = inverse of total tour distance.
-  5. Return the ordered stop sequence, stitch the individual Dijkstra path geometries into one continuous route.
-- Log generation-by-generation best fitness — you'll want a convergence chart for Chapter 4.
+## Algorithms and route semantics
 
----
+### Point-to-point Dijkstra
 
-## Phase 4: Flask Integration (`backend/app/api/v1/routes/`)
+`dijkstra(graph, start_node, end_node)` must:
 
-Extend the existing `patrol` routes rather than creating a new blueprint, if one already exists:
+- Use `heapq`, edge `length_m`, and directed adjacency lists.
+- Return `path_node_ids`, selected edge IDs/keys, `total_distance_m`, `nodes_visited`, and `execution_time_ms`.
+- Correctly distinguish `start_equals_end`, `no_route`, and a valid route.
+- Select the lowest-cost parallel edge and retain its geometry for reconstruction.
 
-- `GET /api/v1/patrol/status` — graph load status (nodes/edges loaded, city scope, memory footprint)
-- `POST /api/v1/patrol/routes` — single origin/destination request:
-  ```json
-  { "start": {"lat": -17.8216, "lng": 31.0492},
-    "end": {"lat": -17.8292, "lng": 31.0522},
-    "algorithm": "dijkstra" }
-  ```
-  Response includes `total_distance_km`, `nodes_visited`, `execution_time_ms`, GeoJSON `LineString`.
-- `POST /api/v1/patrol/compare` — runs the same request through both Dijkstra and GA (for 3+ stop patrol plans) and returns both results side-by-side. This is your Chapter 4 comparison endpoint — design its response shape around what you'll actually plot (distance, time, fuel-proxy estimate for both).
+Use A* only as an optional internal validation/performance feature. If used, its Haversine heuristic must be admissible for metre-based road-distance costs; its result must equal Dijkstra's route distance for the same graph and endpoints.
 
-Keep this consistent with whatever auth/role pattern (JWT, role enforcement) the rest of the API already uses — routing endpoints should probably require `officer` or `admin` role, not be open to `community` users.
+### Multi-stop patrol routing
 
----
+Define a patrol as an **open** route by default: start at the depot/current location, visit every requested stop exactly once, and finish at the final stop. Add `return_to_start: true` only when explicitly requested. Do not silently compare an open GA route with a closed baseline route.
 
-## Phase 5: Frontend (`frontend/src/app/map/`)
+For three or more stops:
 
-Use `react-leaflet`, not vanilla HTML/JS — it's already the frontend framework in use.
+1. Snap all points once and calculate a directed N x N pairwise road-distance/path matrix using the local Dijkstra implementation. Cache matrix entries only within the request unless a bounded, versioned graph cache is added.
+2. If any required directed pair has no route, return a 422 response identifying the affected stops; never substitute Haversine distance.
+3. Calculate the deterministic baseline by nearest-neighbour ordering over this same Dijkstra matrix, with documented deterministic tie-breaking.
+4. Run a manually implemented GA over the same matrix. Keep the start fixed, use tournament selection, OX crossover, swap or inversion mutation, and elitism. Use a seeded random generator supplied in the request or generated and returned in the response for reproducibility.
+5. Fitness for the distance-only comparison is total network distance. A risk/response-priority objective may be offered as a separate, explicitly named mode; it must not be compared as though it optimizes the same objective as distance-only nearest neighbour.
+6. Stitch the selected Dijkstra edge geometries in traversal order, removing only adjacent duplicate coordinates.
 
-1. Map component centered on the scoped city (e.g. Harare: `-17.8292, 31.0522`, zoom ~12), OpenStreetMap tile layer.
-2. Algorithm selector (Dijkstra / Genetic Algorithm for multi-stop).
-3. Click handling: first click = origin marker, subsequent clicks = additional stops (GA mode) or destination (single-route mode).
-4. On stop placement, call the existing `frontend/src/app/api/patrol/routes` (or `/compare`) handler, which proxies to the Flask endpoint above.
-5. Render returned GeoJSON as a `Polyline`/`GeoJSON` layer.
-6. Metrics panel: latency, distance, nodes visited (Dijkstra) or generations/convergence (GA).
+## API contract and authorization
 
----
+Use `patrol_bp`; do not create a second backend service or blueprint. Require JWT authentication and enforce the project’s existing officer/admin authorization helper on all new route-generation and graph-status endpoints. Preserve public/history behaviour only where the existing application explicitly requires it.
 
-## Verification & Acceptance Tests
+Add these Flask endpoints:
 
-1. **Load test:** scoped city graph loads into the Flask process in under 3s, under 600MB RAM.
-2. **Correctness:** query Harare CBD → a known suburb, path completes with no broken edges, distance is sane (sanity-check manually against Google Maps distance — you won't cite Google Maps in the dissertation, it's just your own sanity check).
-3. **Comparison validity:** for the same multi-stop set, log Dijkstra-sequential-visit distance vs GA-optimized distance — this delta is your headline "≥15% fuel reduction" evidence. If you don't hit 15%, report the real number honestly in Chapter 4 and discuss why, rather than adjusting the target after the fact.
-4. **Offline viability:** no external routing/geocoding calls at request time — only the local Flask process and your preprocessed graph file.
+### `GET /api/v1/patrol/status`
 
----
+Returns no geometry and no graph internals beyond:
 
-## What NOT to do
-- Don't spin up a second backend service (FastAPI or otherwise) for this — it undermines Objective 4 and doubles your maintenance/demo burden.
-- Don't build the full-country graph — scope creep against your own delimitations for no dissertation benefit.
-- Don't use `pgr_dijkstra`, `networkx.shortest_path`, or any black-box shortest-path call as your primary implementation — benchmark against them in Chapter 4 if you want, but the graded implementation must be your own code.
+```json
+{
+  "state": "ready",
+  "city": "harare",
+  "nodes": 0,
+  "directed_edges": 0,
+  "artifact_version": "...",
+  "memory_bytes": 0
+}
+```
+
+Allowed states: `not_loaded`, `loading`, `ready`, `failed`.
+
+### `POST /api/v1/patrol/routes`
+
+Point-to-point route request:
+
+```json
+{
+  "city": "harare",
+  "start": {"lat": -17.8216, "lng": 31.0492},
+  "end": {"lat": -17.8292, "lng": 31.0522},
+  "algorithm": "dijkstra"
+}
+```
+
+Success response:
+
+```json
+{
+  "algorithm": "dijkstra",
+  "total_distance_m": 0,
+  "nodes_visited": 0,
+  "execution_time_ms": 0,
+  "start_snap_distance_m": 0,
+  "end_snap_distance_m": 0,
+  "geometry": {"type": "LineString", "coordinates": [[31.0492, -17.8216]]}
+}
+```
+
+`geometry` is valid GeoJSON: every coordinate is `[longitude, latitude]`, never `[lat, lng]`. The endpoint must return 400 for malformed input, 401/403 for authentication/authorization failures, 422 for out-of-scope, distant snap, or no-route inputs, and 503 when the graph is unavailable/loading.
+
+### `POST /api/v1/patrol/compare`
+
+Extend the existing comparison endpoint without breaking its current fields. It accepts `start`, `stops` (minimum three), optional `return_to_start`, `seed`, and GA tuning values bounded by server-side limits. Return the legacy response shape needed by the current patrol page plus a `road_network_comparison` object containing:
+
+- `baseline`: named `dijkstra_nearest_neighbour`, order, network distance, timing, and GeoJSON geometry.
+- `genetic`: order, network distance, timing, seed, generation count, convergence values, and GeoJSON geometry.
+- `distance_saving_pct`, `fuel_proxy_saving_pct`, and the shared fuel-proxy assumptions.
+
+Do not claim a response-time saving from distance alone. Estimate time only when a documented speed model is used, and describe it as an estimate.
+
+## Next.js BFF and map integration
+
+Keep the BFF as a thin proxy.
+
+1. Update `frontend/src/app/api/patrol/routes/route.ts` to retain its existing `GET` history proxy and add `POST`, forwarding the JSON body and bearer token to Flask `/patrol/routes`.
+2. Keep `frontend/src/app/api/patrol/compare/route.ts` as the `POST` proxy to Flask `/patrol/compare`; pass route input unchanged and preserve non-2xx backend errors.
+3. Extend `CrimeMap` using its existing Leaflet patterns. Render returned `LineString` GeoJSON with Leaflet/GeoJSON support, and show explicit start, stop, and end markers. Do not add `react-leaflet` merely because Leaflet is installed.
+4. Add road-route selection only to officer/admin patrol workflows. The existing `/map` page must continue rendering incidents, hotspots, and saved route history when routing is unavailable.
+5. Validate click inputs before requesting: one start and one end for point-to-point; one start and at least three stops for comparison. Show backend validation messages without exposing stack traces.
+6. Preserve existing `MapRoute` compatibility. Add a new optional geometry field/type rather than changing or assuming the legacy saved-waypoint format.
+
+## Migration and compatibility
+
+- Do not change or delete persisted `PatrolRoute` records as part of this feature.
+- Add schema migrations only if new persisted route geometry or graph metadata is required. Existing route-history reads must work before and after migration.
+- Keep `GET /api/v1/patrol/routes` as route history. `POST /api/v1/patrol/routes` is route generation; the shared path is intentional and must have distinct Flask/Next handlers.
+- Remove DEAP from runtime dependencies only after its current usage is fully replaced and tests pass. Do not leave a fallback that relabels a non-GA route as GA.
+
+## Tests and acceptance criteria
+
+Add unit, API, and frontend type/build coverage. At minimum:
+
+1. Dijkstra finds the known shortest path in a small directed fixture and observes one-way edges.
+2. Dijkstra returns no route for disconnected directed fixture nodes.
+3. Snapping returns the correct node and rejects far-away input.
+4. Stitched route geometry is continuous and serializes valid GeoJSON `[lng, lat]` coordinates.
+5. Nearest-neighbour and GA both use the supplied directed pairwise matrix, visit each required stop exactly once, and honor `return_to_start`.
+6. A fixed seed produces the same GA order and convergence data.
+7. Flask endpoints cover 200, 400, 401/403, 422, and 503 cases, and existing patrol history/compare integration tests continue to pass.
+8. Next.js typecheck and production build pass. Verify that the map still renders when no road graph exists and that a successful route renders on desktop and mobile.
+9. Perform a manual Harare CBD-to-suburb road-distance sanity check against an independently viewed map. Record the observation, graph artifact version, and test date; do not use it as a live routing dependency.
+10. Measure and record actual graph load duration, process memory impact, route latency, node visits, and GA convergence for the dissertation. Do not fabricate performance targets or savings.
+
+## Explicit exclusions
+
+- No Google, Mapbox, OSRM SaaS, or other request-time routing/geocoding API.
+- No full-country graph in the Flask process.
+- No `networkx`, pgRouting, DEAP operators, or other black-box route/GA implementation in the primary dissertation path.
+- No straight-line distance substituted for an unavailable road path.
+- No silent fallback from a failed GA to a baseline while reporting the result as GA.
