@@ -57,9 +57,6 @@ function PatrolInner() {
     const ok = isPatrolAllowed(getStoredUser());
     setAllowed(ok);
     if (!ok) return;
-    api<{ routes: MapRoute[] }>("/api/patrol/routes")
-      .then((r) => setRoutes(r.routes))
-      .catch((e) => setError(e.message));
   }, []);
 
   async function runComparison() {
@@ -112,7 +109,7 @@ function PatrolInner() {
           Patrol Route Planner
         </h1>
         <p className="mb-4 text-sm text-slate-400">
-          Compare candidate patrol routes by hotspot & incident coverage.
+          Automatically compare road-network routes through the current critical hotspots.
         </p>
 
         <div className="mb-4 space-y-2">

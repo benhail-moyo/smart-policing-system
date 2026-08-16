@@ -34,6 +34,10 @@ export type MapRoute = {
   name: string;
   color: string;
   waypoints: { lat: number; lng: number }[];
+  geometry?: {
+    type: string;
+    coordinates: [number, number][];
+  };
 };
 
 export type MapDeployment = {
@@ -64,6 +68,7 @@ export default function CrimeMap({
   hotspots = [],
   routes = [],
   deployments = [],
+  routeSelection = [],
   onMapClick,
   selected,
   showIncidents = true,
@@ -73,6 +78,7 @@ export default function CrimeMap({
   hotspots?: MapHotspot[];
   routes?: MapRoute[];
   deployments?: MapDeployment[];
+  routeSelection?: { lat: number; lng: number }[];
   onMapClick?: (lat: number, lng: number) => void;
   selected?: { lat: number; lng: number } | null;
   showIncidents?: boolean;
@@ -139,9 +145,22 @@ export default function CrimeMap({
 
     // routes (polylines) — drawn first so they sit under markers
     for (const r of routes) {
-      const latlngs = r.waypoints.map(
-        (w) => [w.lat, w.lng] as [number, number]
-      );
+      // Use GeoJSON geometry if available, otherwise fall back to waypoints
+      let latlngs: [number, number][];
+      if (r.geometry && r.geometry.type === "LineString" && r.geometry.coordinates.length > 0) {
+        // GeoJSON coordinates are [lng, lat], Leaflet expects [lat, lng]
+        latlngs = r.geometry.coordinates.map(
+          (coord) => [coord[1], coord[0]] as [number, number]
+        );
+      } else if (r.waypoints && r.waypoints.length > 0) {
+        // Fall back to waypoints (for hotspot-based routes)
+        latlngs = r.waypoints.map(
+          (w) => [w.lat, w.lng] as [number, number]
+        );
+      } else {
+        continue; // Skip routes with no geometry or waypoints
+      }
+      
       L.polyline(latlngs, {
         color: r.color,
         weight: 5,
@@ -149,16 +168,19 @@ export default function CrimeMap({
       })
         .bindPopup(`<b>${r.name}</b>`)
         .addTo(layer);
-      // waypoint dots
-      r.waypoints.forEach((w) => {
-        L.circleMarker([w.lat, w.lng], {
-          radius: 4,
-          color: r.color,
-          fillColor: r.color,
-          fillOpacity: 1,
-          weight: 1,
-        }).addTo(layer);
-      });
+      
+      // waypoint dots only if we have waypoints (not for road network routes)
+      if (r.waypoints && r.waypoints.length > 0) {
+        r.waypoints.forEach((w) => {
+          L.circleMarker([w.lat, w.lng], {
+            radius: 4,
+            color: r.color,
+            fillColor: r.color,
+            fillOpacity: 1,
+            weight: 1,
+          }).addTo(layer);
+        });
+      }
     }
 
     // hotspots (colored circles)
@@ -215,7 +237,20 @@ export default function CrimeMap({
         .bindPopup(`<b>${symbol} ${d.unitType === "foot" ? "Foot" : "Vehicle"} deployment</b><br/>${d.areaName}<br/><small>${d.instructions || "No instructions"}</small>`)
         .addTo(layer);
     }
-  }, [incidents, hotspots, routes, deployments, showIncidents, mapReady]);
+
+    for (const [index, point] of routeSelection.entries()) {
+      const isStart = index === 0;
+      L.circleMarker([point.lat, point.lng], {
+        radius: 8,
+        color: "#ffffff",
+        weight: 2,
+        fillColor: isStart ? "#22c55e" : "#f97316",
+        fillOpacity: 1,
+      })
+        .bindTooltip(isStart ? "Patrol start" : `Stop ${index}`, { permanent: true, direction: "top" })
+        .addTo(layer);
+    }
+  }, [incidents, hotspots, routes, deployments, routeSelection, showIncidents, mapReady]);
 
   // selected marker for reporting
   useEffect(() => {

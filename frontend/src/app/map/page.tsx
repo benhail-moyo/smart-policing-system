@@ -54,6 +54,8 @@ function MapInner() {
   const [showHotspots, setShowHotspots] = useState(true);
   const [showRoutes, setShowRoutes] = useState(false);
   const [analyzing, setAnalyzing] = useState(false);
+  const [comparing, setComparing] = useState(false);
+  const [comparison, setComparison] = useState<ComparisonRoute[] | null>(null);
   const [msg, setMsg] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [filter, setFilter] = useState<TimeFilter>({
@@ -156,6 +158,24 @@ function MapInner() {
     }
   }
 
+  async function runComparison() {
+    setComparing(true);
+    setError(null);
+    setMsg(null);
+    try {
+      const result = await api<{ routes: ComparisonRoute[] }>("/api/patrol/compare", { method: "POST" });
+      setRoutes(result.routes);
+      setComparison(result.routes);
+      setShowRoutes(true);
+      setShowHotspots(true);
+      setMsg("Dijkstra and Genetic Algorithm routes generated for the current critical hotspots.");
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Route comparison failed");
+    } finally {
+      setComparing(false);
+    }
+  }
+
   return (
     <div className="flex h-full flex-col">
       {/* Top bar */}
@@ -219,6 +239,15 @@ function MapInner() {
               <Zap className="h-4 w-4" />
             )}
             {analyzing ? "Analysing…" : "Run Hotspot Analysis"}
+          </button>
+          <button
+            onClick={runComparison}
+            disabled={comparing || !canPatrol}
+            title={canPatrol ? "Compare road routes through critical hotspots" : "Only officers can compare patrol routes"}
+            className="flex items-center gap-1.5 rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold hover:bg-blue-500 disabled:opacity-50"
+          >
+            {comparing ? <Loader2 className="h-4 w-4 animate-spin" /> : <Car className="h-4 w-4" />}
+            {comparing ? "Comparing…" : "Run Comparison"}
           </button>
         </div>
       </div>
@@ -351,10 +380,37 @@ function MapInner() {
           <LegendRow color="#eab308" label="Medium / Low hotspot" />
           <LegendRow color="#22c55e" label="Low priority incident" />
         </div>
+        {comparison && (
+          <div className="absolute right-4 top-4 z-[1000] w-80 rounded-xl border border-slate-700 bg-slate-900/95 p-3 text-xs shadow-xl">
+            <p className="mb-2 font-semibold text-slate-100">Critical hotspot coverage</p>
+            <div className="space-y-3">
+              {comparison.map((route) => (
+                <div key={route.id}>
+                  <p className="font-medium" style={{ color: route.color }}>
+                    {route.name}: {route.hotspotsCovered}/{route.hotspotOrder.length} selected hotspots · {route.distanceKm} km
+                  </p>
+                  <ol className="mt-1 list-decimal space-y-0.5 pl-4 text-slate-300">
+                    {route.hotspotOrder.map((hotspot) => (
+                      <li key={`${route.id}-${hotspot.id}`}>
+                        Hotspot #{hotspot.id} ({hotspot.incidentCount} incidents, risk {hotspot.riskScore})
+                      </li>
+                    ))}
+                  </ol>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );
 }
+
+type ComparisonRoute = MapRoute & {
+  distanceKm: number;
+  hotspotsCovered: number;
+  hotspotOrder: { id: number; incidentCount: number; riskScore: number }[];
+};
 
 function ToggleChip({
   active,

@@ -1,0 +1,83 @@
+{
+  "timestamp": "2026-08-15T20:51:56.516475",
+  "graph_loading": {
+    "success": true,
+    "load_time_seconds": 0.3222839832305908,
+    "status": {
+      "state": "ready",
+      "city": "harare",
+      "nodes": 10382,
+      "directed_edges": 26839,
+      "artifact_version": "20260815_205122",
+      "memory_bytes": 4042160
+    },
+    "nodes_loaded": 10382,
+    "edges_loaded": 26839
+  },
+  "spatial_index": {
+    "success": true,
+    "build_time_seconds": 0.05214405059814453,
+    "snap_results": {
+      "cbd_center": {
+        "success": true,
+        "snap_distance_m": 74.16766032344285,
+        "query_time_ms": 5.601167678833008
+      },
+      "cbd_west": {
+        "success": true,
+        "snap_distance_m": 116.56354832981035,
+        "query_time_ms": 0.0
+      },
+      "cbd_east": {
+        "success": true,
+        "snap_distance_m": 54.985996239795206,
+        "query_time_ms": 0.0
+      },
+      "suburb_borrowdale": {
+        "success": true,
+        "snap_distance_m": 161.2973264508193,
+        "query_time_ms": 1.0216236114501953
+      },
+      "suburb_mabelreign": {
+        "success": true,
+        "snap_distance_m": 146.9264298171375,
+        "query_time_ms": 0.0
+      }
+    }
+  },
+  "dijkstra": {
+    "success": true,
+    "status": "success",
+    "query_time_ms": 0.9999275207519531,
+    "total_distance_m": 1282.9649999999997,
+    "nodes_visited": 201,
+    "path_length": 16
+  },
+  "genetic_algorithm": {
+    "success": true,
+    "baseline_distance_m": 8167.233,
+    "baseline_time_ms": 0.0,
+    "ga_distance_m": 8167.233,
+    "ga_time_ms": 44.629573822021484,
+    "ga_generations": 100,
+    "improvement_pct": 0.0,
+    "convergence_sample": [
+      8167.233,
+      8167.233,
+      8167.233,
+      8167.233,
+      8167.233,
+      8167.233,
+      8167.233,
+      8167.233,
+      8167.233,
+      8167.233
+    ]
+  },
+  "sanity_check": {
+    "success": true,
+    "distance_m": 1282.9649999999997,
+    "execution_time_ms": 1.4285999932326376,
+    "distance_sane": true
+  }
+}
