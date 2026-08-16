@@ -62,6 +62,7 @@ class RouteEngine:
         hotspot_ids: List[int],
         algorithm: str = "both",
         start_location: Optional[tuple] = None,
+        save_to_db: bool = False
     ) -> List[RouteResult]:
         """
         Run route optimization.
@@ -70,6 +71,7 @@ class RouteEngine:
             hotspot_ids: IDs of hotspots to include in the patrol.
             algorithm: 'dijkstra' | 'genetic' | 'both'
             start_location: (lat, lng) of patrol start point (police station).
+            save_to_db: Whether to persist results to database (default: False to avoid duplicate saves)
 
         Returns:
             List of RouteResult objects (1 or 2 depending on algorithm param).
@@ -99,9 +101,10 @@ class RouteEngine:
         if algorithm in ("genetic", "both"):
             results.append(self._run_genetic(waypoints, hotspots))
 
-        # Persist results to DB for history and dissertation data export
-        for result in results:
-            self._save_route(result)
+        # Only persist results to DB if explicitly requested
+        if save_to_db:
+            for result in results:
+                self._save_route(result)
 
         return results
 
@@ -257,6 +260,14 @@ class RouteEngine:
         db.session.commit()
 
     def _result_to_dict(self, r: RouteResult) -> dict:
+        # Generate simple GeoJSON LineString from waypoints for straight-line routes
+        geometry = None
+        if r.waypoints and len(r.waypoints) >= 2:
+            geometry = {
+                "type": "LineString",
+                "coordinates": [[point[1], point[0]] for point in r.waypoints]  # [lng, lat]
+            }
+        
         return {
             "algorithm": r.algorithm,
             "total_distance_km": r.total_distance_km,
@@ -271,6 +282,7 @@ class RouteEngine:
             ],
             "route_explanation": r.route_explanation,
             "convergence_file": r.convergence_file,
+            "geometry": geometry
         }
 
 
