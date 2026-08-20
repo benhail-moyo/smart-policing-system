@@ -2,6 +2,10 @@ node_modules/
 .next/
 .venv/
 venv/
+.env/
+agents/
+env/
+.env.local/
 __pycache__/
 *.py[cod]
 .pytest_cache/

@@ -48,8 +48,8 @@ const PRIORITY_ICON: Record<string, React.ReactNode> = {
 function ReportInner() {
   const [type, setType] = useState<string>(CRIME_TYPES[0]);
   const [description, setDescription] = useState("");
-  const [occurredAt, setOccurredAt] = useState("");
-  const [severity, setSeverity] = useState(3);
+  const [occurredDate, setOccurredDate] = useState("");
+  const [occurredTime, setOccurredTime] = useState("");
   const [suburb, setSuburb] = useState("");
   const [point, setPoint] = useState<{ lat: number; lng: number } | null>(
     null
@@ -72,8 +72,7 @@ function ReportInner() {
         body: JSON.stringify({
           type,
           description,
-          occurredAt: occurredAt || undefined,
-          severity,
+          occurredAt: (occurredDate && occurredTime) ? `${occurredDate}T${occurredTime}` : undefined,
           suburb,
           lat: point.lat,
           lng: point.lng,
@@ -81,7 +80,8 @@ function ReportInner() {
       });
       setResult(res.triage);
       setDescription("");
-      setOccurredAt("");
+      setOccurredDate("");
+      setOccurredTime("");
       setSuburb("");
       setPoint(null);
     } catch (err) {
@@ -136,12 +136,24 @@ function ReportInner() {
 
           <div>
             <label className="mb-1 block text-xs font-medium text-slate-400">
-              Date and time of incident
+              Date of incident
             </label>
             <input
-              type="datetime-local"
-              value={occurredAt}
-              onChange={(e) => setOccurredAt(e.target.value)}
+              type="date"
+              value={occurredDate}
+              onChange={(e) => setOccurredDate(e.target.value)}
+              className="w-full rounded-lg border border-slate-700 bg-slate-800 px-3 py-2.5 text-sm"
+            />
+          </div>
+
+          <div>
+            <label className="mb-1 block text-xs font-medium text-slate-400">
+              Time of incident
+            </label>
+            <input
+              type="time"
+              value={occurredTime}
+              onChange={(e) => setOccurredTime(e.target.value)}
               className="w-full rounded-lg border border-slate-700 bg-slate-800 px-3 py-2.5 text-sm"
             />
           </div>
@@ -155,20 +167,6 @@ function ReportInner() {
               onChange={(e) => setSuburb(e.target.value)}
               placeholder="e.g. CBD, Mbare"
               className="w-full rounded-lg border border-slate-700 bg-slate-800 px-3 py-2.5 text-sm"
-            />
-          </div>
-
-          <div>
-            <label className="mb-1 block text-xs font-medium text-slate-400">
-              Severity: {severity}/5
-            </label>
-            <input
-              type="range"
-              min={1}
-              max={5}
-              value={severity}
-              onChange={(e) => setSeverity(Number(e.target.value))}
-              className="w-full accent-red-500"
             />
           </div>
 

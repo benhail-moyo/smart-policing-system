@@ -12,3 +12,4 @@ google-generativeai==0.7.2
 scipy==1.14.0
 deap==1.4.1
 osmnx==1.9.1
+python-dotenv==1.0.0
