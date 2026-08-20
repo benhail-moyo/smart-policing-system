@@ -80,14 +80,10 @@ def create_incident():
         # Return a JSON error so frontend receives structured response
         return jsonify({"error": f"Triage failed: {exc}"}), 500
 
-    # If category or severity passed explicitly, respect/blend it
+    # Category from frontend or NLP triage
     category = data.get("type") or triage_result.get("category") or "General"
-    req_sev = data.get("severity")
-    if req_sev:
-        sev_val = str(req_sev).upper()
-        severity = "HIGH" if sev_val in ("5", "4", "HIGH") else "MEDIUM" if sev_val in ("3", "MEDIUM") else "LOW"
-    else:
-        severity = triage_result.get("severity", "MEDIUM")
+    # Severity always determined by NLP triage engine
+    severity = triage_result.get("severity", "MEDIUM")
 
     # ── Resolve submitting user ────────────────────────────────────────────
     raw_user_id = get_jwt_identity()

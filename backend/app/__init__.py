@@ -10,6 +10,8 @@ from flask_sqlalchemy import SQLAlchemy
 from flask_migrate import Migrate
 from flask_jwt_extended import JWTManager
 from flask_cors import CORS
+from dotenv import load_dotenv
+import os
 
 db = SQLAlchemy()
 migrate = Migrate()
@@ -26,6 +28,10 @@ def create_app(config_name: str = "development") -> Flask:
     Returns:
         Configured Flask application instance.
     """
+    # Load environment variables from .env file (in project root)
+    project_root = os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
+    load_dotenv(os.path.join(project_root, '.env'))
+    
     app = Flask(__name__)
 
     # Load config object based on environment

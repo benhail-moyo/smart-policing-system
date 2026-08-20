@@ -174,7 +174,6 @@ class NLPTriageService:
 
         if gemini_api_key:
             result = self._call_gemini(annotated_text, gemini_api_key)
-            raw_response = result.get("raw_gemini_response")
         else:
             logger.warning("GEMINI_API_KEY not set — using keyword fallback")
             result = _keyword_triage(text)
@@ -187,6 +186,16 @@ class NLPTriageService:
             result = _keyword_triage(text)
             result["language_detected"] = language
             return result
+
+        # Ensure result is a valid dictionary (defensive programming)
+        if not isinstance(result, dict):
+            logger.error("Gemini returned invalid result type: %s", type(result))
+            result = _keyword_triage(text)
+            result["language_detected"] = language
+            return result
+
+        # Extract raw response after confirming result is not None
+        raw_response = result.get("raw_gemini_response")
 
         # Step 7: Keyword override — never let HIGH keywords slip to LOW
         if keyword_high_signal and result.get("severity") == "LOW":
@@ -223,11 +232,17 @@ class NLPTriageService:
             import google.generativeai as genai
 
             genai.configure(api_key=api_key)
-            model = genai.GenerativeModel("gemini-1.5-flash")
+            # Use a stable, available model
+            model = genai.GenerativeModel("models/gemini-flash-latest")
 
             prompt = CLASSIFICATION_PROMPT.format(report_text=text)
             response = model.generate_content(prompt)
 
+            # Check if response has text attribute and it's not empty
+            if not hasattr(response, 'text') or not response.text:
+                logger.error("Gemini API returned empty or invalid response")
+                return None
+                
             raw_text = response.text
             parsed = extract_json_from_llm_response(raw_text)
 
@@ -257,6 +272,9 @@ class NLPTriageService:
                 "google-generativeai package not installed. "
                 "Run: pip install google-generativeai"
             )
+            return None
+        except ValueError as exc:
+            logger.error("Failed to parse JSON from Gemini response: %s", exc)
             return None
         except Exception as exc:
             logger.error("Gemini API call failed: %s", exc)
