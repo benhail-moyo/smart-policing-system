@@ -11,3 +11,8 @@ __pycache__/
 .pytest_cache/
 .coverage
 *.tsbuildinfo
+.env
+.env.backend
+.env.example
+.env.local
+.env.frontend
