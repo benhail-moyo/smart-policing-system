@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import AppShell from "@/components/AppShell";
+import PatternVisualization from "@/components/patterns/PatternVisualization";
 import { api } from "@/lib/client";
 import {
   BrainCircuit,
@@ -19,6 +20,7 @@ import {
   Calendar,
   AlertCircle,
   CheckCircle2,
+  Network,
 } from "lucide-react";
 
 type Report = {
@@ -526,6 +528,15 @@ function AnalysisInner() {
                 </div>
               ))}
             </div>
+          </div>
+
+          {/* PATTERN DETECTION */}
+          <div className="rounded-2xl border border-slate-800 bg-slate-900/60 p-5">
+            <h2 className="mb-3 flex items-center gap-2 text-sm font-semibold text-slate-300">
+              <Network className="h-4 w-4 text-purple-400" />
+              Pattern Detection
+            </h2>
+            <PatternVisualization />
           </div>
         </div>
       )}
