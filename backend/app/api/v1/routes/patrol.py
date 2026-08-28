@@ -5,7 +5,7 @@ from app import db
 from app.models.models import Hotspot, PatrolRoute
 from app.services.gis.hotspot_analysis import hotspot_service
 from app.services.routing.route_engine import route_engine
-from app.utils.auth_decorators import require_role
+from app.security.decorators import login_required, role_required
 
 patrol_bp = Blueprint("patrol", __name__)
 
@@ -219,8 +219,8 @@ def route_metrics():
 
 
 @patrol_bp.post("/save")
-@jwt_required()
-@require_role("officer", "admin")
+@login_required
+@role_required("officer", "admin")
 def save_route():
     """Explicitly save a route to the database."""
     data = request.get_json(silent=True) or {}
@@ -259,8 +259,8 @@ def get_recent_routes():
 
 
 @patrol_bp.get("/status")
-@jwt_required()
-@require_role("officer", "admin")
+@login_required
+@role_required("officer", "admin")
 def get_graph_status():
     """Return road network graph status without exposing internals."""
     try:
@@ -272,8 +272,8 @@ def get_graph_status():
 
 
 @patrol_bp.post("/routes")
-@jwt_required()
-@require_role("officer", "admin")
+@login_required
+@role_required("officer", "admin")
 def generate_point_to_point_route():
     """Generate point-to-point route using road network Dijkstra."""
     try:

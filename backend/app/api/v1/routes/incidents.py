@@ -10,13 +10,14 @@ Endpoints:
 import re
 from datetime import datetime, timezone
 
-from flask import Blueprint, jsonify, request
+from flask import Blueprint, jsonify, request, g
 from flask_jwt_extended import jwt_required, get_jwt_identity
 from sqlalchemy import func
 
 from app import db
 from app.models.models import Incident, User
 from app.services.nlp.triage import triage_service
+from app.security.decorators import login_required, role_required
 
 incidents_bp = Blueprint("incidents", __name__)
 

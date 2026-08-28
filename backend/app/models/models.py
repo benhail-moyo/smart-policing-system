@@ -1,39 +1,58 @@
 from datetime import datetime, timezone
 
-from werkzeug.security import generate_password_hash, check_password_hash
-
 from app import db
+from app.security.passwords import hash_password, verify_password
 
 
 class User(db.Model):
     __tablename__ = "user"
 
     id = db.Column(db.Integer, primary_key=True)
+    role = db.Column(db.String(20), nullable=False)  # 'community' | 'officer' | 'admin'
+
+    # Identifiers — exactly one of these is populated per role convention,
+    # but store both columns for flexibility.
+    email = db.Column(db.String(255), nullable=True, index=True)
+    officer_id = db.Column(db.String(50), nullable=True, index=True)
     name = db.Column(db.String(120), nullable=True)
-    email = db.Column(db.String(255), unique=True, nullable=False)
+
     password_hash = db.Column(db.String(255), nullable=False)
-    role = db.Column(db.String(50), nullable=False, default="community")
     is_active = db.Column(db.Boolean, nullable=False, default=True)
+
+    # MFA
+    totp_secret = db.Column(db.String(64), nullable=True)       # base32 secret, set on enrolment
+    totp_enabled = db.Column(db.Boolean, default=False, nullable=False)
+
+    # Account lockout state (belt-and-suspenders alongside Flask-Limiter)
+    failed_login_count = db.Column(db.Integer, default=0, nullable=False)
+    locked_until = db.Column(db.DateTime, nullable=True)
+
     created_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc))
 
     # Relationship back to incidents they reported
     incidents = db.relationship("Incident", back_populates="reported_by", lazy="dynamic")
 
+    __table_args__ = (
+        db.CheckConstraint("role IN ('community','officer','admin')", name="valid_role"),
+    )
+
     def set_password(self, password: str):
-        """Hash and store the user's password."""
-        self.password_hash = generate_password_hash(password)
+        """Hash and store the user's password using Argon2id."""
+        self.password_hash = hash_password(password)
 
     def check_password(self, password: str) -> bool:
-        """Verify a plaintext password against the stored hash."""
-        return check_password_hash(self.password_hash, password)
+        """Verify a plaintext password against the stored Argon2id hash."""
+        return verify_password(self.password_hash, password)
 
     def to_dict(self):
         return {
             "id": self.id,
-            "name": self.name or self.email.split("@")[0],
+            "name": self.name or (self.email.split("@")[0] if self.email else "Officer"),
             "email": self.email,
+            "officer_id": self.officer_id,
             "role": self.role,
             "is_active": self.is_active,
+            "totp_enabled": self.totp_enabled,
             "created_at": self.created_at.isoformat() if self.created_at else None,
         }
 
@@ -258,3 +277,34 @@ class OfficerDailyLog(db.Model):
                 "date": self.log_date, "shift": self.shift, "areaName": self.area_name,
                 "summary": self.summary, "status": self.status,
                 "createdAt": self.created_at.isoformat() if self.created_at else None}
+
+
+class RefreshToken(db.Model):
+    __tablename__ = "refresh_tokens"
+
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey("user.id"), nullable=False)
+    token_hash = db.Column(db.String(128), nullable=False)  # store a hash, never the raw token
+    issued_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc))
+    expires_at = db.Column(db.DateTime, nullable=False)
+    revoked = db.Column(db.Boolean, default=False, nullable=False)
+
+
+class AuditLog(db.Model):
+    """Audit log for security events and user actions."""
+    __tablename__ = "audit_log"
+
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey("user.id"), nullable=True)  # nullable for system events
+    event_type = db.Column(db.String(50), nullable=False)  # LOGIN_SUCCESS, LOGIN_FAILED, MFA_FAILED, LOCKOUT, ROLE_CHANGE, TOKEN_REFRESH, LOGOUT
+    event_metadata = db.Column(db.JSON, nullable=True)  # Additional event-specific data
+    ip_address = db.Column(db.String(45), nullable=True)  # IPv4 or IPv6
+    user_agent = db.Column(db.String(255), nullable=True)
+    created_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc), nullable=False)
+
+    __table_args__ = (
+        db.CheckConstraint(
+            "event_type IN ('LOGIN_SUCCESS','LOGIN_FAILED','MFA_FAILED','LOCKOUT','ROLE_CHANGE','TOKEN_REFRESH','LOGOUT')",
+            name="valid_event_type"
+        ),
+    )
