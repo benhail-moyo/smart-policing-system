@@ -2,8 +2,8 @@
 
 import { useEffect, useState, useCallback } from "react";
 import dynamic from "next/dynamic";
-import AppShell from "@/components/AppShell";
-import { api, getStoredUser, isPatrolAllowed } from "@/lib/client";
+import AppShell, { useAuth } from "@/components/AppShell";
+import { api, isPatrolAllowed } from "@/lib/client";
 import type {
   MapIncident,
   MapHotspot,
@@ -66,7 +66,8 @@ function MapInner() {
     customTo: "",
   });
   const [showFilters, setShowFilters] = useState(false);
-  const canPatrol = isPatrolAllowed(getStoredUser());
+  const { user } = useAuth();
+  const canPatrol = isPatrolAllowed(user);
 
   const applyFilter = useCallback(
     (raw: MapIncident[]) => {

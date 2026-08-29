@@ -3,8 +3,8 @@
 import { useEffect, useState } from "react";
 import dynamic from "next/dynamic";
 import { useRouter } from "next/navigation";
-import AppShell from "@/components/AppShell";
-import { api, getStoredUser, isPatrolAllowed } from "@/lib/client";
+import AppShell, { useAuth } from "@/components/AppShell";
+import { api, isPatrolAllowed } from "@/lib/client";
 import type { MapRoute } from "@/components/CrimeMap";
 import {
   Car,
@@ -46,18 +46,13 @@ type CompareResponse = {
 
 function PatrolInner() {
   const router = useRouter();
-  const [allowed, setAllowed] = useState<boolean | null>(null);
+  const { user } = useAuth();
+  const allowed = isPatrolAllowed(user);
   const [routes, setRoutes] = useState<MapRoute[]>([]);
   const [comparison, setComparison] = useState<Comparison[] | null>(null);
   const [recommended, setRecommended] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    const ok = isPatrolAllowed(getStoredUser());
-    setAllowed(ok);
-    if (!ok) return;
-  }, []);
 
   async function runComparison() {
     setLoading(true);

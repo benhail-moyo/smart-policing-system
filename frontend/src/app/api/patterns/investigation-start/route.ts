@@ -1,18 +1,17 @@
 import { NextRequest, NextResponse } from "next/server";
-
-const BACKEND_API = process.env.NEXT_PUBLIC_API_BASE_URL || "http://127.0.0.1:5000/api/v1";
+import { backendApiUrl } from "@/lib/backend-api";
 
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    
+
     const token = request.headers.get("authorization")?.replace("Bearer ", "");
     const headers: Record<string, string> = {
       "Content-Type": "application/json",
     };
     if (token) headers["Authorization"] = `Bearer ${token}`;
 
-    const response = await fetch(`${BACKEND_API}/patterns/investigation-start`, {
+    const response = await fetch(`${backendApiUrl}/patterns/investigation-start`, {
       method: "POST",
       headers,
       body: JSON.stringify(body),

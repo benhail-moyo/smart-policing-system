@@ -50,6 +50,9 @@ class GeneticSolver:
         if len(self.waypoints) == 0:
             self.best_individual = []
             return []
+        if len(self.waypoints) == 1:
+            self.best_individual = [0]
+            return self.waypoints
         if len(self.waypoints) <= 2:
             self.best_individual = list(range(len(self.waypoints)))
             return self.waypoints

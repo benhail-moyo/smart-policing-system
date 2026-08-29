@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { createContext, useContext, useEffect, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import Link from "next/link";
 import {
@@ -20,6 +20,20 @@ import {
   LogOut,
   ChevronRight,
 } from "lucide-react";
+
+interface AuthContextType {
+  user: AuthUser | null;
+  logout: () => void;
+}
+
+const AuthContext = createContext<AuthContextType>({
+  user: null,
+  logout: () => {},
+});
+
+export function useAuth() {
+  return useContext(AuthContext);
+}
 
 const NAV = [
   { href: "/", label: "Dashboard", Icon: LayoutDashboard, roles: ["community", "officer", "admin"] },
@@ -49,6 +63,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
 
   function logout() {
     clearAuth();
+    setUser(null);
     router.replace("/login");
   }
 
@@ -63,6 +78,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
   const items = NAV.filter((n) => n.roles.includes(user.role));
 
   return (
+    <AuthContext.Provider value={{ user, logout }}>
     <div className="flex min-h-screen bg-slate-950 text-slate-100">
       {/* Desktop sidebar */}
       <aside className="hidden w-64 flex-col border-r border-slate-800 bg-slate-900/60 md:flex">
@@ -147,5 +163,6 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
         <main className="flex-1 overflow-auto">{children}</main>
       </div>
     </div>
+    </AuthContext.Provider>
   );
 }

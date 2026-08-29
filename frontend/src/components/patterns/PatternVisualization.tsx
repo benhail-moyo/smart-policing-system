@@ -26,8 +26,18 @@ export default function PatternVisualization() {
   const fetchPatterns = async (days: number) => {
     try {
       setLoading(true);
-      const data = await api<{ patterns: PatternData }>(`/api/patterns/active?days_back=${days}`);
-      setPatterns(data.patterns);
+      const response = await fetch(`/api/patterns/active?days_back=${days}`);
+      const data = await response.json();
+      if (data && data.patterns) {
+        setPatterns(data.patterns);
+      } else {
+        setPatterns({
+          serial_crimes: [],
+          crime_sprees: [],
+          repeat_locations: [],
+          geographic_patterns: [],
+        });
+      }
       setError(null);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to fetch patterns');
@@ -57,9 +67,9 @@ export default function PatternVisualization() {
   );
 
   const totalPatterns = 
-    patterns.serial_crimes.length + 
-    patterns.crime_sprees.length + 
-    patterns.repeat_locations.length;
+    (patterns.serial_crimes?.length ?? 0) + 
+    (patterns.crime_sprees?.length ?? 0) + 
+    (patterns.repeat_locations?.length ?? 0);
 
   return (
     <div className="space-y-6">
@@ -94,7 +104,7 @@ export default function PatternVisualization() {
           </div>
 
           {/* Serial Crimes */}
-          {patterns.serial_crimes.length > 0 && (
+          {(patterns.serial_crimes?.length ?? 0) > 0 && (
             <div className="p-4 border-b border-gray-200">
               <h3 className="text-lg font-semibold text-red-800 mb-3 flex items-center gap-2">
                 <span className="w-3 h-3 bg-red-600 rounded-full"></span>
@@ -130,7 +140,7 @@ export default function PatternVisualization() {
           )}
 
           {/* Crime Sprees */}
-          {patterns.crime_sprees.length > 0 && (
+          {(patterns.crime_sprees?.length ?? 0) > 0 && (
             <div className="p-4 border-b border-gray-200">
               <h3 className="text-lg font-semibold text-orange-800 mb-3 flex items-center gap-2">
                 <span className="w-3 h-3 bg-orange-600 rounded-full"></span>
@@ -166,7 +176,7 @@ export default function PatternVisualization() {
           )}
 
           {/* Repeat Locations */}
-          {patterns.repeat_locations.length > 0 && (
+          {(patterns.repeat_locations?.length ?? 0) > 0 && (
             <div className="p-4 border-b border-gray-200">
               <h3 className="text-lg font-semibold text-yellow-800 mb-3 flex items-center gap-2">
                 <span className="w-3 h-3 bg-yellow-600 rounded-full"></span>
@@ -202,7 +212,7 @@ export default function PatternVisualization() {
           )}
 
           {/* Geographic Patterns */}
-          {patterns.geographic_patterns.length > 0 && (
+          {(patterns.geographic_patterns?.length ?? 0) > 0 && (
             <div className="p-4">
               <h3 className="text-lg font-semibold text-blue-800 mb-3 flex items-center gap-2">
                 <span className="w-3 h-3 bg-blue-600 rounded-full"></span>

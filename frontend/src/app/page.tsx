@@ -2,8 +2,8 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import AppShell from "@/components/AppShell";
-import { api, getStoredUser } from "@/lib/client";
+import AppShell, { useAuth } from "@/components/AppShell";
+import { api } from "@/lib/client";
 import {
   BarChart3,
   Siren,
@@ -38,11 +38,13 @@ const PRIORITY_STYLE: Record<string, string> = {
 function DashboardInner() {
   const [stats, setStats] = useState<Stats | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const user = getStoredUser();
+  const { user } = useAuth();
 
   useEffect(() => {
     api<Stats>("/api/incidents/stats")
-      .then(setStats)
+      .then((res) => {
+        if (res) setStats(res);
+      })
       .catch((e) => setError(e.message));
   }, []);
 

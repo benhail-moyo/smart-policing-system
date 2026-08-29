@@ -2,8 +2,8 @@
 
 import { useEffect, useState } from "react";
 import dynamic from "next/dynamic";
-import AppShell from "@/components/AppShell";
-import { api, getStoredUser } from "@/lib/client";
+import AppShell, { useAuth } from "@/components/AppShell";
+import { api } from "@/lib/client";
 import type { MapDeployment } from "@/components/CrimeMap";
 import { Radio, Footprints, Car, ClipboardList, MapPin, Plus, ShieldAlert, UsersRound, CalendarDays, LockKeyhole } from "lucide-react";
 
@@ -26,15 +26,17 @@ function CommandInner() {
   const [personnel, setPersonnel] = useState(6);
   const [notice, setNotice] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const user = getStoredUser();
+  const { user } = useAuth();
 
   async function load() {
     const [d, p, l] = await Promise.all([
-      api<{deployments: MapDeployment[]}>("/api/command/deployments"),
-      api<{plans: Plan[]}>("/api/command/plans"),
-      api<{logs: Log[]}>("/api/command/logs"),
+      api<{deployments: MapDeployment[]}>("/api/command/deployments").catch(() => ({ deployments: [] })),
+      api<{plans: Plan[]}>("/api/command/plans").catch(() => ({ plans: [] })),
+      api<{logs: Log[]}>("/api/command/logs").catch(() => ({ logs: [] })),
     ]);
-    setDeployments(d.deployments); setPlans(p.plans); setLogs(l.logs);
+    setDeployments(d.deployments || []);
+    setPlans(p.plans || []);
+    setLogs(l.logs || []);
   }
   useEffect(() => { if (user?.role === "admin") load().catch(e => setError(e.message)); }, [user?.role]);
 

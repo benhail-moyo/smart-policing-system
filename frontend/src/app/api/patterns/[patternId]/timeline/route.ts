@@ -1,21 +1,20 @@
 import { NextRequest, NextResponse } from "next/server";
-
-const BACKEND_API = process.env.NEXT_PUBLIC_API_BASE_URL || "http://127.0.0.1:5000/api/v1";
+import { backendApiUrl } from "@/lib/backend-api";
 
 export async function GET(
   request: NextRequest,
-  { params }: { params: { patternId: string } }
+  { params }: { params: Promise<{ patternId: string }> }
 ) {
   try {
-    const { patternId } = params;
-    
+    const { patternId } = await params;
+
     const token = request.headers.get("authorization")?.replace("Bearer ", "");
     const headers: Record<string, string> = {
       "Content-Type": "application/json",
     };
     if (token) headers["Authorization"] = `Bearer ${token}`;
 
-    const response = await fetch(`${BACKEND_API}/patterns/${patternId}/timeline`, {
+    const response = await fetch(`${backendApiUrl}/patterns/${patternId}/timeline`, {
       method: "GET",
       headers,
     });

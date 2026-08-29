@@ -1,0 +1,12 @@
+{
+  "generations": [],
+  "fitness": [],
+  "parameters": {
+    "pop_size": 100,
+    "generations": 200,
+    "mutation_rate": 0.02,
+    "crossover_rate": 0.8,
+    "alpha": 0.15,
+    "seed": 42
+  }
+}

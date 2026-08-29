@@ -1,5 +1,4 @@
 import { backendApiUrl } from "@/lib/backend-api";
-import api from "@/lib/api";
 
 export const dynamic = "force-dynamic";
 

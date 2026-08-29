@@ -2,7 +2,6 @@
 
 import { useState } from "react";
 import AppShell from "@/components/AppShell";
-import PatternVisualization from "@/components/patterns/PatternVisualization";
 import { api } from "@/lib/client";
 import {
   BrainCircuit,
@@ -20,7 +19,6 @@ import {
   Calendar,
   AlertCircle,
   CheckCircle2,
-  Network,
 } from "lucide-react";
 
 type Report = {
@@ -223,32 +221,32 @@ function AnalysisInner() {
           <div className="grid grid-cols-2 gap-4 md:grid-cols-3 lg:grid-cols-6">
             <MiniCard
               label="Incidents"
-              value={report.summary.totalIncidents}
+              value={report.summary?.totalIncidents ?? 0}
               icon={<BarChart3 className="h-5 w-5 text-blue-400" />}
             />
             <MiniCard
               label="Hotspots"
-              value={report.summary.activeHotspots}
+              value={report.summary?.activeHotspots ?? 0}
               icon={<MapPin className="h-5 w-5 text-red-400" />}
             />
             <MiniCard
               label="Resolution"
-              value={`${report.summary.resolutionRate}%`}
+              value={`${report.summary?.resolutionRate ?? 0}%`}
               icon={<CheckCircle2 className="h-5 w-5 text-green-400" />}
             />
             <MiniCard
               label="Trend"
-              value={`${report.summary.trendPercent > 0 ? "+" : ""}${report.summary.trendPercent}%`}
+              value={`${(report.summary?.trendPercent ?? 0) > 0 ? "+" : ""}${report.summary?.trendPercent ?? 0}%`}
               icon={<TrendIcon className={`h-5 w-5 ${trendColor}`} />}
             />
             <MiniCard
               label="Peak time"
-              value={report.summary.mostDangerousTime}
+              value={report.summary?.mostDangerousTime ?? "N/A"}
               icon={<Clock className="h-5 w-5 text-yellow-400" />}
             />
             <MiniCard
               label="Top crime"
-              value={report.summary.mostReportedType}
+              value={report.summary?.mostReportedType ?? "N/A"}
               icon={<AlertTriangle className="h-5 w-5 text-orange-400" />}
               small
             />
@@ -261,7 +259,7 @@ function AnalysisInner() {
               Executive Summary
             </h2>
             <pre className="whitespace-pre-wrap font-sans text-sm leading-relaxed text-slate-300">
-              {report.narrative}
+              {report.narrative ?? "No summary available."}
             </pre>
           </div>
 
@@ -276,20 +274,20 @@ function AnalysisInner() {
               <div className="mb-3 flex items-center gap-3">
                 <span
                   className={`rounded-full px-4 py-1.5 text-sm font-bold uppercase ${
-                    RISK_BADGE[report.riskForecast.nextWeekRisk]
+                    RISK_BADGE[report.riskForecast?.nextWeekRisk] ?? "bg-slate-700 text-white"
                   }`}
                 >
-                  {report.riskForecast.nextWeekRisk}
+                  {report.riskForecast?.nextWeekRisk ?? "Low"}
                 </span>
                 <span className="text-sm text-slate-400">
-                  Confidence: {report.riskForecast.confidence}%
+                  Confidence: {report.riskForecast?.confidence ?? 0}%
                 </span>
               </div>
               <div className="mt-3 space-y-1.5">
                 <p className="text-xs font-medium text-slate-400">
                   Contributing factors:
                 </p>
-                {report.riskForecast.factors.map((f, i) => (
+                {(report.riskForecast?.factors ?? []).map((f, i) => (
                   <div
                     key={i}
                     className="flex items-start gap-2 rounded-lg bg-slate-800/50 px-3 py-2 text-sm text-slate-300"
@@ -304,7 +302,7 @@ function AnalysisInner() {
                   Areas to monitor:
                 </p>
                 <div className="mt-1 flex flex-wrap gap-1.5">
-                  {report.riskForecast.predictedHotspotAreas.map((a) => (
+                  {(report.riskForecast?.predictedHotspotAreas ?? []).map((a) => (
                     <span
                       key={a}
                       className="rounded-full bg-red-500/15 px-3 py-1 text-xs text-red-300"
@@ -327,9 +325,9 @@ function AnalysisInner() {
               <div className="mb-4">
                 <p className="mb-2 text-xs text-slate-400">Hourly distribution</p>
                 <div className="flex h-28 items-end gap-1">
-                  {report.timeAnalysis.hourlyDistribution.map((h) => {
+                  {(report.timeAnalysis?.hourlyDistribution ?? []).map((h) => {
                     const max = Math.max(
-                      ...report.timeAnalysis.hourlyDistribution.map(
+                      ...(report.timeAnalysis?.hourlyDistribution ?? []).map(
                         (x) => x.count
                       ),
                       1
@@ -368,30 +366,30 @@ function AnalysisInner() {
                 <div className="rounded-lg bg-slate-800/50 p-3">
                   <p className="mb-1 text-xs text-slate-400">Peak hours</p>
                   <p className="font-semibold text-red-300">
-                    {report.timeAnalysis.peakHours}
+                    {report.timeAnalysis?.peakHours ?? "N/A"}
                   </p>
                 </div>
                 <div className="rounded-lg bg-slate-800/50 p-3">
                   <p className="mb-1 text-xs text-slate-400">Quiet hours</p>
                   <p className="font-semibold text-green-300">
-                    {report.timeAnalysis.quietHours}
+                    {report.timeAnalysis?.quietHours ?? "N/A"}
                   </p>
                 </div>
                 <div className="rounded-lg bg-slate-800/50 p-3">
                   <p className="mb-1 text-xs text-slate-400">Most active day</p>
                   <p className="font-semibold text-yellow-300">
-                    {report.summary.mostDangerousDay}
+                    {report.summary?.mostDangerousDay ?? "N/A"}
                   </p>
                 </div>
                 <div className="rounded-lg bg-slate-800/50 p-3">
                   <p className="mb-1 text-xs text-slate-400">Weekend split</p>
                   <p className="font-semibold">
                     <span className="text-red-300">
-                      {report.timeAnalysis.weekendVsWeekday.weekendPct}%
+                      {report.timeAnalysis?.weekendVsWeekday?.weekendPct ?? 0}%
                     </span>{" "}
                     /{" "}
                     <span className="text-blue-300">
-                      {report.timeAnalysis.weekendVsWeekday.weekdayPct}%
+                      {report.timeAnalysis?.weekendVsWeekday?.weekdayPct ?? 0}%
                     </span>
                   </p>
                 </div>
@@ -407,14 +405,14 @@ function AnalysisInner() {
                 Geographic Breakdown
               </h2>
               <p className="mb-3 text-sm text-slate-400">
-                {report.geographicAnalysis.geographicSpread}
+                {report.geographicAnalysis?.geographicSpread ?? "N/A"}
               </p>
-              {report.geographicAnalysis.emergingHotspots.length > 0 && (
+              {(report.geographicAnalysis?.emergingHotspots ?? []).length > 0 && (
                 <div className="mb-3">
                   <p className="mb-1 text-xs font-medium text-orange-400">
                     Emerging hotspots:
                   </p>
-                  {report.geographicAnalysis.emergingHotspots.map((h) => (
+                  {(report.geographicAnalysis?.emergingHotspots ?? []).map((h) => (
                     <div
                       key={h.name}
                       className="flex items-center justify-between py-1 text-sm"
@@ -430,7 +428,7 @@ function AnalysisInner() {
               <p className="mb-2 text-xs font-medium text-slate-400">
                 Highest risk areas:
               </p>
-              {report.geographicAnalysis.topSuburbs.slice(0, 8).map((s) => (
+              {(report.geographicAnalysis?.topSuburbs ?? []).slice(0, 8).map((s) => (
                 <div
                   key={s.name}
                   className="flex items-center justify-between rounded-lg bg-slate-800/50 px-3 py-2 text-sm"
@@ -460,9 +458,9 @@ function AnalysisInner() {
                 Crime Type Analysis
               </h2>
               <p className="mb-3 text-sm text-slate-400">
-                {report.crimeTypeAnalysis.dominantPattern}
+                {report.crimeTypeAnalysis?.dominantPattern ?? "N/A"}
               </p>
-              {report.crimeTypeAnalysis.topTypes.map((t) => (
+              {(report.crimeTypeAnalysis?.topTypes ?? []).map((t) => (
                 <div
                   key={t.type}
                   className="flex items-center justify-between rounded-lg bg-slate-800/50 px-3 py-2 text-sm"
@@ -496,7 +494,7 @@ function AnalysisInner() {
               Strategic Recommendations
             </h2>
             <div className="grid gap-3 md:grid-cols-2">
-              {report.recommendations.map((rec, i) => (
+              {(report.recommendations ?? []).map((rec, i) => (
                 <div
                   key={i}
                   className="rounded-xl border border-slate-700 bg-slate-800/40 p-4"
@@ -515,7 +513,7 @@ function AnalysisInner() {
                   <div className="flex items-center gap-2">
                     <span
                       className={`rounded-full px-2.5 py-0.5 text-[10px] font-bold uppercase ${
-                        RISK_BADGE[rec.priority]
+                        RISK_BADGE[rec.priority] ?? "bg-slate-700 text-white"
                       }`}
                     >
                       {rec.priority}
@@ -530,14 +528,6 @@ function AnalysisInner() {
             </div>
           </div>
 
-          {/* PATTERN DETECTION */}
-          <div className="rounded-2xl border border-slate-800 bg-slate-900/60 p-5">
-            <h2 className="mb-3 flex items-center gap-2 text-sm font-semibold text-slate-300">
-              <Network className="h-4 w-4 text-purple-400" />
-              Pattern Detection
-            </h2>
-            <PatternVisualization />
-          </div>
         </div>
       )}
     </div>

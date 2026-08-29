@@ -44,6 +44,7 @@ class RouteResult:
     hotspot_ids: list
     route_explanation: list = field(default_factory=list)
     convergence_file: Optional[str] = None
+    warning: Optional[str] = None
 
 
 class RouteEngine:
@@ -101,6 +102,12 @@ class RouteEngine:
         if algorithm in ("genetic", "both"):
             results.append(self._run_genetic(waypoints, hotspots))
 
+        # Add warning if insufficient waypoints for meaningful comparison
+        if len(waypoints) <= 2:
+            warning = f"Only {len(waypoints)} waypoint(s) - both algorithms return identical routes. Add more hotspots for meaningful comparison."
+            for result in results:
+                result.warning = warning
+
         # Only persist results to DB if explicitly requested
         if save_to_db:
             for result in results:
@@ -127,6 +134,13 @@ class RouteEngine:
 
         if not dijkstra or not genetic:
             return {}
+
+        # Add warning if routes are identical due to insufficient waypoints
+        total_waypoints = len(dijkstra.waypoints)
+        if total_waypoints <= 2:
+            warning = f"Only {total_waypoints} waypoint(s) - both algorithms return identical routes. Add more hotspots for meaningful comparison."
+            dijkstra.warning = warning
+            genetic.warning = warning
 
         fuel_saving_pct = (
             (dijkstra.estimated_fuel_litres - genetic.estimated_fuel_litres)
@@ -267,8 +281,8 @@ class RouteEngine:
                 "type": "LineString",
                 "coordinates": [[point[1], point[0]] for point in r.waypoints]  # [lng, lat]
             }
-        
-        return {
+
+        result = {
             "algorithm": r.algorithm,
             "total_distance_km": r.total_distance_km,
             "estimated_fuel_litres": r.estimated_fuel_litres,
@@ -284,6 +298,11 @@ class RouteEngine:
             "convergence_file": r.convergence_file,
             "geometry": geometry
         }
+
+        if r.warning:
+            result["warning"] = r.warning
+
+        return result
 
 
 route_engine = RouteEngine()

@@ -11,8 +11,10 @@ RUN --mount=type=cache,target=/root/.npm \
 # Copy application code
 COPY . .
 
-ENV NEXT_PUBLIC_API_BASE_URL="/api/v1"
-ENV NEXT_PUBLIC_API_HOST="http://backend:5000"
+# Set default environment variables (can be overridden by docker-compose)
+ENV BACKEND_API_URL=http://backend:5000
+ENV BACKEND_API=http://backend:5000
+ENV NEXT_PUBLIC_API_HOST=http://backend:5000
 
 EXPOSE 3000
 
