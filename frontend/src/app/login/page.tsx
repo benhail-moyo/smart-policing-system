@@ -19,9 +19,11 @@ export default function LoginPage() {
   const [seeding, setSeeding] = useState(false);
 
   useEffect(() => {
-    if (getStoredUser()) router.replace("/");
-    api("/api/seed", { method: "POST" }).catch(() => {});
-  }, [router]);
+    const user = getStoredUser();
+    if (user && user.id && user.email) {
+      router.replace("/");
+    }
+  }, []);
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
@@ -51,7 +53,9 @@ export default function LoginPage() {
     setError(null);
     setSeeding(true);
     try {
+      // Seed database before login
       await api("/api/seed", { method: "POST" }).catch(() => {});
+      
       const role = demoEmail.includes("officer") ? "officer" : demoEmail.includes("admin") ? "admin" : "community";
       const name = demoEmail.includes("officer") ? "Officer Chikwava" : demoEmail.includes("admin") ? "Command Admin" : "Tendai Moyo";
 
