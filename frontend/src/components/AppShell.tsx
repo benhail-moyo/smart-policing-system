@@ -39,7 +39,8 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     const u = getStoredUser();
-    if (!u) {
+    if (!u || !u.id || !u.email) {
+      clearAuth();
       router.replace("/login");
       return;
     }
