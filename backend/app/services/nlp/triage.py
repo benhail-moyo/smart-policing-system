@@ -23,8 +23,6 @@ import json
 import logging
 import os
 
-from flask import current_app
-
 from app.services.nlp.language_utils import detect_language, translate_to_english
 from app.utils.json_parser import extract_json_from_llm_response
 
@@ -169,7 +167,7 @@ class NLPTriageService:
         keyword_high_signal = any(kw in lowered for kw in HIGH_SEVERITY_KEYWORDS)
 
         # Step 5-6: Attempt Gemini classification
-        gemini_api_key = current_app.config.get("GEMINI_API_KEY", "")
+        gemini_api_key = os.getenv("GEMINI_API_KEY", "")
         raw_response = None
 
         if gemini_api_key:
@@ -232,8 +230,8 @@ class NLPTriageService:
             import google.generativeai as genai
 
             genai.configure(api_key=api_key)
-            # Use a stable, available model
-            model = genai.GenerativeModel("models/gemini-flash-latest")
+            # Use a stable, available model with timeout
+            model = genai.GenerativeModel("models/gemini-3.6-flash")
 
             prompt = CLASSIFICATION_PROMPT.format(report_text=text)
             response = model.generate_content(prompt)

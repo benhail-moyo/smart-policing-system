@@ -22,11 +22,12 @@ services:
       context: ./backend
       dockerfile: Dockerfile
     container_name: crime-watch-backend
+    env_file:
+      - .env
     environment:
       - DATABASE_URL=postgresql://crime_watch:crime_watch@db:5432/crime_watch
       - FLASK_ENV=development
       - FLASK_APP=wsgi.py
-      - GEMINI_API_KEY=${GEMINI_API_KEY:-}
     command: sh -c "python init_db.py && flask run --host=0.0.0.0 --port=5000"
     ports:
       - "5000:5000"
@@ -43,6 +44,7 @@ services:
     container_name: crime-watch-frontend
     environment:
       - BACKEND_API_URL=http://backend:5000
+      - NODE_ENV=production
     ports:
       - "3000:3000"
     volumes:
@@ -50,6 +52,7 @@ services:
       - /usr/src/app/node_modules
     depends_on:
       - backend
+    command: sh -c "npm run build && npm start"
 
 volumes:
   crime_watch_pgdata:
