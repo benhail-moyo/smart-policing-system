@@ -1,4 +1,5 @@
 from sqlalchemy import inspect, text
+from geoalchemy2.shape import to_shape
 
 from app import create_app, db
 
@@ -31,7 +32,7 @@ def apply_compatibility_migrations():
     
     # Fresh start migration for hotspot tables with PostGIS
     try:
-        hotspot_table_exists = db.engine.dialect.has_table(db.engine, "hotspot")
+        hotspot_table_exists = inspect(db.engine).has_table("hotspot")
         if hotspot_table_exists:
             # Check if old hotspot table exists (with lat/lng columns or integer id)
             hotspot_columns = {column["name"] for column in inspect(db.engine).get_columns("hotspot")}
@@ -52,7 +53,7 @@ def apply_compatibility_migrations():
     
     # Create spatial index on hotspot centroid if table exists
     try:
-        hotspot_table_exists = db.engine.dialect.has_table(db.engine, "hotspot")
+        hotspot_table_exists = inspect(db.engine).has_table("hotspot")
         if hotspot_table_exists:
             # Check if spatial index already exists
             index_exists = False

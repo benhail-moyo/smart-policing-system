@@ -437,6 +437,7 @@ function HotspotDetailInner({ hotspot_id }: { hotspot_id: string }) {
   );
 }
 
-export default function HotspotDetailPage({ params }: { params: { hotspot_id: string } }) {
-  return <AppShell><HotspotDetailInner hotspot_id={params.hotspot_id} /></AppShell>;
+export default async function HotspotDetailPage({ params }: { params: Promise<{ hotspot_id: string }> }) {
+  const { hotspot_id } = await params;
+  return <AppShell><HotspotDetailInner hotspot_id={hotspot_id} /></AppShell>;
 }

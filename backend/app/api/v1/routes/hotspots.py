@@ -48,7 +48,7 @@ def list_hotspots():
 
 
 @hotspots_bp.get("/all")
-@jwt_required()
+@jwt_required(optional=True)
 def list_all_hotspots():
     """List all hotspots regardless of status."""
     hotspots = db.session.query(Hotspot).order_by(Hotspot.risk_score.desc()).all()
@@ -57,7 +57,7 @@ def list_all_hotspots():
 
 
 @hotspots_bp.get("/<uuid:hotspot_id>")
-@jwt_required()
+@jwt_required(optional=True)
 def get_hotspot(hotspot_id):
     """Get single hotspot with summary stats."""
     hotspot = db.session.query(Hotspot).filter(Hotspot.hotspot_id == hotspot_id).first()
@@ -81,7 +81,7 @@ def get_hotspot(hotspot_id):
 
 
 @hotspots_bp.get("/<uuid:hotspot_id>/history")
-@jwt_required()
+@jwt_required(optional=True)
 def get_hotspot_history(hotspot_id):
     """Get full history time series for a hotspot."""
     history = db.session.query(HotspotHistory).filter(
