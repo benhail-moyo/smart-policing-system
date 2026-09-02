@@ -80,6 +80,11 @@ npm run dev
 - Authentication: `/api/v1/auth/`
 - Patrol management: `/api/v1/patrol/`
 - Hotspot analysis: `/api/v1/hotspots/`
+  - `GET /api/v1/hotspots/` - List active hotspots (excludes dormant by default)
+  - `GET /api/v1/hotspots/all` - List all hotspots regardless of status
+  - `GET /api/v1/hotspots/<id>` - Get single hotspot with summary stats
+  - `GET /api/v1/hotspots/<id>/history` - Get full history time series for hotspot
+  - `POST /api/v1/hotspots/analyze` - Run hotspot analysis
 - Command center: `/api/v1/command/`
 
 ## Recent Changes (August 2026)
@@ -88,16 +93,43 @@ npm run dev
 - Removed manual severity selection from community report form
 - Separated date and time input fields for better UX
 - Severity now automatically determined by NLP engine
+- Added "Hotspot Trends" navigation button to command center for accessing hotspot trend analysis
 
 ### Backend Updates
 - Modified incident creation to always use NLP triage severity
 - Removed override capability for manual severity input
 - Enhanced Gemini API key configuration in docker-compose
+- **Implemented persistent hotspot identity with trend tracking**
+  - Replaced complete hotspot replacement with incremental updates
+  - Added status lifecycle (emerging, active, cooling, dormant) with hysteresis
+  - Implemented centroid-distance matching using Haversine distance (500m radius)
+  - Added HotspotHistory model for trend analysis and Chapter 4 evaluation
+  - New API endpoints: `/api/hotspots/all`, `/api/hotspots/<id>`, `/api/hotspots/<id>/history`
+  - Enhanced hotspot filtering: main dashboard excludes dormant hotspots by default
+
+### Database Schema Updates
+- Migrated Hotspot model to use PostGIS GEOMETRY columns (Point, Polygon)
+- Added UUID primary key for stable hotspot identity across analysis runs
+- Added status, consecutive_misses, first_detected_at, last_matched_at columns
+- Created HotspotHistory model for append-only logging of all analysis runs
+- Added spatial index on hotspot centroid for performance
+- Fresh start migration: old hotspot data cleared for new schema
 
 ### Configuration Updates
 - Added GEMINI_API_KEY to environment configuration
 - Updated docker-compose.yml to load API key from environment
 - Added comprehensive comments in .env files for setup guidance
+- **Hotspot analysis parameters**:
+  - `MATCH_RADIUS_METERS = 500` (Haversine distance in meters)
+  - `COOLING_THRESHOLD = 2` (consecutive missed runs before dormant)
+  - `ANALYSIS_CADENCE_HOURS = 6` (production run cadence)
+  - DBSCAN parameters maintained: `DBSCAN_EPSILON = 0.008`, `DBSCAN_MIN_SAMPLES = 4`
+
+### Hotspot Analysis Enhancements
+- **Matching Logic**: Greedy nearest-neighbor with mutual best match, includes ALL hotspots (including dormant) in candidate pool for reactivation
+- **Status Lifecycle**: emerging→active→cooling→dormant with reactivation support
+- **Risk Score Components**: Now returns tuple (total, volume, severity, recency) for detailed trend analysis
+- **History Logging**: All hotspots (including dormant) get history entries per run for complete trend visibility
 
 ## Testing
 Integration tests are available in `backend/tests/` directory.

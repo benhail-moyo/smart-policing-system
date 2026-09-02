@@ -1,6 +1,10 @@
 from datetime import datetime, timezone
+import uuid
 
 from werkzeug.security import generate_password_hash, check_password_hash
+from geoalchemy2 import Geometry
+from geoalchemy2.shape import to_shape
+from sqlalchemy.dialects.postgresql import UUID
 
 from app import db
 
@@ -121,30 +125,30 @@ class Incident(db.Model):
 class Hotspot(db.Model):
     __tablename__ = "hotspot"
 
-    id = db.Column(db.Integer, primary_key=True)
-    # Simplified location for SQLite compatibility
-    lat = db.Column(db.Float, nullable=True)
-    lng = db.Column(db.Float, nullable=True)
+    hotspot_id = db.Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    centroid = db.Column(Geometry('POINT', srid=4326), nullable=False)
+    convex_hull = db.Column(Geometry('POLYGON', srid=4326))
+    dominant_category = db.Column(db.String(120))
     incident_count = db.Column(db.Integer, nullable=False, default=0)
     risk_score = db.Column(db.Float, nullable=False, default=0.0)
-    dominant_category = db.Column(db.String(120))
-    analysis_date = db.Column(db.DateTime)
-    created_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc))
+    status = db.Column(db.String(20), nullable=False, default='emerging')  # 'emerging', 'active', 'cooling', 'dormant'
+    consecutive_misses = db.Column(db.Integer, nullable=False, default=0)
+    first_detected_at = db.Column(db.DateTime, nullable=False)
+    last_matched_at = db.Column(db.DateTime, nullable=False)
+    updated_at = db.Column(db.DateTime, nullable=False)
 
     def to_dict(self):
-        lat = self.lat or -17.8292
-        lng = self.lng or 31.0522
-        ctr = {"lat": lat, "lng": lng}
-
+        geom = to_shape(self.centroid)
+        
         score = float(self.risk_score or 0.0)
         level = "high" if score >= 0.6 else "medium" if score >= 0.3 else "low"
         weight = round(score * 10, 1)
 
         return {
-            "id": self.id,
-            "centroid": ctr,
-            "lat": lat,
-            "lng": lng,
+            "hotspot_id": str(self.hotspot_id),
+            "centroid": {"lat": geom.y, "lng": geom.x},
+            "lat": geom.y,
+            "lng": geom.x,
             "count": self.incident_count,
             "weight": weight,
             "radius": min(900, 300 + self.incident_count * 70),
@@ -153,7 +157,44 @@ class Hotspot(db.Model):
             "incident_count": self.incident_count,
             "risk_score": self.risk_score,
             "dominant_category": self.dominant_category,
-            "analysis_date": self.analysis_date.isoformat() if self.analysis_date else None,
+            "status": self.status,
+            "consecutive_misses": self.consecutive_misses,
+            "first_detected_at": self.first_detected_at.isoformat() if self.first_detected_at else None,
+            "last_matched_at": self.last_matched_at.isoformat() if self.last_matched_at else None,
+            "updated_at": self.updated_at.isoformat() if self.updated_at else None,
+        }
+
+
+class HotspotHistory(db.Model):
+    __tablename__ = "hotspot_history"
+
+    history_id = db.Column(db.Integer, primary_key=True)
+    hotspot_id = db.Column(UUID(as_uuid=True), db.ForeignKey("hotspot.hotspot_id"), nullable=False)
+    run_timestamp = db.Column(db.DateTime, nullable=False)
+    centroid = db.Column(Geometry('POINT', srid=4326), nullable=False)
+    incident_count = db.Column(db.Integer, nullable=False)
+    risk_score = db.Column(db.Float, nullable=False)
+    volume_score = db.Column(db.Float, nullable=False)
+    severity_score = db.Column(db.Float, nullable=False)
+    recency_score = db.Column(db.Float, nullable=False)
+    status = db.Column(db.String(20), nullable=False)
+    dominant_category = db.Column(db.String(120))
+
+    def to_dict(self):
+        geom = to_shape(self.centroid)
+        
+        return {
+            "history_id": self.history_id,
+            "hotspot_id": str(self.hotspot_id),
+            "run_timestamp": self.run_timestamp.isoformat() if self.run_timestamp else None,
+            "centroid": {"lat": geom.y, "lng": geom.x},
+            "incident_count": self.incident_count,
+            "risk_score": self.risk_score,
+            "volume_score": self.volume_score,
+            "severity_score": self.severity_score,
+            "recency_score": self.recency_score,
+            "status": self.status,
+            "dominant_category": self.dominant_category,
         }
 
 

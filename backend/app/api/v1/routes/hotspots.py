@@ -2,7 +2,7 @@ from flask import Blueprint, jsonify, request
 from flask_jwt_extended import jwt_required
 
 from app import db
-from app.models.models import Hotspot
+from app.models.models import Hotspot, HotspotHistory
 from app.services.gis.hotspot_analysis import hotspot_service
 from app.utils.auth_decorators import require_role
 
@@ -19,7 +19,10 @@ def analyze_hotspots():
         days_back = 30
 
     result = hotspot_service.run_hotspot_analysis(days_back=days_back)
-    hotspots = db.session.query(Hotspot).order_by(Hotspot.risk_score.desc()).all()
+    # Filter out dormant hotspots from analysis response
+    hotspots = db.session.query(Hotspot).filter(
+        Hotspot.status.in_(['emerging', 'active', 'cooling'])
+    ).order_by(Hotspot.risk_score.desc()).all()
     dicts = [h.to_dict() for h in hotspots]
     return jsonify({
         "analyzed": result.get("source_count", 0),
@@ -32,9 +35,62 @@ def analyze_hotspots():
 @hotspots_bp.get("/")
 @jwt_required(optional=True)
 def list_hotspots():
+    """List hotspots, excluding dormant by default."""
+    include_dormant = request.args.get('include_dormant', 'false').lower() == 'true'
+    
+    query = db.session.query(Hotspot)
+    if not include_dormant:
+        query = query.filter(Hotspot.status.in_(['emerging', 'active', 'cooling']))
+    
+    hotspots = query.order_by(Hotspot.risk_score.desc()).all()
+    dicts = [h.to_dict() for h in hotspots]
+    return jsonify({"hotspots": dicts}), 200
+
+
+@hotspots_bp.get("/all")
+@jwt_required()
+def list_all_hotspots():
+    """List all hotspots regardless of status."""
     hotspots = db.session.query(Hotspot).order_by(Hotspot.risk_score.desc()).all()
     dicts = [h.to_dict() for h in hotspots]
     return jsonify({"hotspots": dicts}), 200
+
+
+@hotspots_bp.get("/<uuid:hotspot_id>")
+@jwt_required()
+def get_hotspot(hotspot_id):
+    """Get single hotspot with summary stats."""
+    hotspot = db.session.query(Hotspot).filter(Hotspot.hotspot_id == hotspot_id).first()
+    if not hotspot:
+        return jsonify({"error": "Hotspot not found"}), 404
+    
+    # Calculate summary stats
+    history_count = db.session.query(HotspotHistory).filter(
+        HotspotHistory.hotspot_id == hotspot_id
+    ).count()
+    
+    return jsonify({
+        "hotspot": hotspot.to_dict(),
+        "summary": {
+            "total_runs_tracked": history_count,
+            "first_detected_at": hotspot.first_detected_at.isoformat(),
+            "last_matched_at": hotspot.last_matched_at.isoformat(),
+            "current_streak": hotspot.consecutive_misses
+        }
+    }), 200
+
+
+@hotspots_bp.get("/<uuid:hotspot_id>/history")
+@jwt_required()
+def get_hotspot_history(hotspot_id):
+    """Get full history time series for a hotspot."""
+    history = db.session.query(HotspotHistory).filter(
+        HotspotHistory.hotspot_id == hotspot_id
+    ).order_by(HotspotHistory.run_timestamp.asc()).all()
+    
+    return jsonify({
+        "history": [h.to_dict() for h in history]
+    }), 200
 
 
 
