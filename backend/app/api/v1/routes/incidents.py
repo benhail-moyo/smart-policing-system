@@ -6,6 +6,8 @@ Endpoints:
   GET  /api/v1/incidents/        List incidents (filterable by severity)
   GET  /api/v1/incidents/<id>    Get single incident
   GET  /api/v1/incidents/stats   Count by severity (dashboard use)
+  PUT  /api/v1/incidents/<id>/override  Override triage (officers/admin)
+  GET  /api/v1/incidents/search   Advanced search (officers/admin)
 """
 import re
 from datetime import datetime, timezone
@@ -17,6 +19,7 @@ from sqlalchemy import func
 from app import db
 from app.models.models import Incident, User
 from app.services.nlp.triage import triage_service
+from app.utils.auth_decorators import require_role
 
 incidents_bp = Blueprint("incidents", __name__)
 
@@ -107,6 +110,7 @@ def create_incident():
         triage_confidence=triage_result.get("confidence", 0.85),
         triage_summary=triage_result.get("summary", raw_text[:100]),
         raw_gemini_response=triage_result.get("raw_gemini_response"),
+        extracted_entities=triage_result.get("entities", {}),
         status="TRIAGED",
         lat=float(lat) if lat is not None else None,
         lng=float(lng) if lng is not None else None,
@@ -265,11 +269,171 @@ def get_stats():
 @jwt_required(optional=True)
 def get_incident(incident_id: int):
     """
-    Retrieve a single incident by ID.
+    Retrieve a single incident by ID with full details.
     """
+    user_id = get_jwt_identity()
+    user = db.session.get(User, int(user_id)) if user_id and str(user_id).isdigit() else None
+    
     incident = db.session.get(Incident, incident_id)
     if not incident:
         return jsonify({"error": "Incident not found"}), 404
 
+    # Community users can only see their own incidents
+    if user and user.role == "community" and incident.reported_by_id != user.id:
+        return jsonify({"error": "Access denied"}), 403
+
     return jsonify({"incident": incident.to_dict()}), 200
+
+
+# ── PUT /api/v1/incidents/<id>/override ───────────────────────────────────────
+
+@incidents_bp.put("/<int:incident_id>/override")
+@jwt_required()
+@require_role("officer", "admin")
+def override_incident(incident_id: int):
+    """
+    Override triage assessment (officers/admin only).
+    Allows manual modification of severity, category, and provides reason.
+    """
+    user_id = get_jwt_identity()
+    user = db.session.get(User, int(user_id)) if user_id else None
+    
+    if not user:
+        return jsonify({"error": "User not found"}), 404
+
+    incident = db.session.get(Incident, incident_id)
+    if not incident:
+        return jsonify({"error": "Incident not found"}), 404
+
+    data = request.get_json(silent=True) or {}
+    
+    # Validate override fields
+    valid_severities = ["HIGH", "MEDIUM", "LOW"]
+    manual_severity = data.get("manual_severity")
+    if manual_severity and manual_severity not in valid_severities:
+        return jsonify({"error": f"Invalid severity. Must be one of: {valid_severities}"}), 400
+
+    valid_categories = ["murder", "assault", "robbery", "rape", "theft", "burglary", 
+                       "vandalism", "drug_offence", "fraud", "suspicious_activity", 
+                       "noise_complaint", "domestic_dispute", "other"]
+    manual_category = data.get("manual_category")
+    if manual_category and manual_category not in valid_categories:
+        return jsonify({"error": f"Invalid category. Must be one of: {valid_categories}"}), 400
+
+    override_reason = data.get("override_reason")
+    if not override_reason:
+        return jsonify({"error": "Override reason is required"}), 400
+
+    # Apply override
+    incident.manual_severity = manual_severity
+    incident.manual_category = manual_category
+    incident.override_reason = override_reason
+    incident.override_by_id = user.id
+    incident.override_at = datetime.now(timezone.utc)
+
+    db.session.commit()
+
+    return jsonify({
+        "message": "Incident triage override applied successfully",
+        "incident": incident.to_dict()
+    }), 200
+
+
+# ── GET /api/v1/incidents/search ────────────────────────────────────────────
+
+@incidents_bp.get("/search")
+@jwt_required()
+@require_role("officer", "admin")
+def search_incidents():
+    """
+    Advanced search and filtering for incidents (officers/admin only).
+    Supports filtering by date, time, location, risk score, category, and incident ref.
+    """
+    try:
+        # Get filter parameters
+        start_date = request.args.get("start_date")
+        end_date = request.args.get("end_date")
+        category = request.args.get("category")
+        severity = request.args.get("severity", "").upper()
+        status = request.args.get("status", "").upper()
+        location = request.args.get("location")
+        min_confidence = request.args.get("min_confidence")
+        search_query = request.args.get("q")  # Full-text search
+        
+        # Pagination
+        try:
+            limit = min(int(request.args.get("limit", 50)), 200)
+            offset = int(request.args.get("offset", 0))
+        except (TypeError, ValueError):
+            limit, offset = 50, 0
+
+        query = db.session.query(Incident)
+
+        # Apply filters
+        if start_date:
+            try:
+                start_dt = datetime.fromisoformat(start_date).replace(tzinfo=timezone.utc)
+                query = query.filter(Incident.created_at >= start_dt)
+            except ValueError:
+                return jsonify({"error": "Invalid start_date format"}), 400
+
+        if end_date:
+            try:
+                end_dt = datetime.fromisoformat(end_date).replace(tzinfo=timezone.utc)
+                query = query.filter(Incident.created_at <= end_dt)
+            except ValueError:
+                return jsonify({"error": "Invalid end_date format"}), 400
+
+        if category:
+            query = query.filter(Incident.category == category)
+
+        if severity in ("HIGH", "MEDIUM", "LOW"):
+            query = query.filter(Incident.severity == severity)
+
+        if status:
+            query = query.filter(Incident.status == status)
+
+        if location:
+            query = query.filter(Incident.location_description.ilike(f"%{location}%"))
+
+        if min_confidence:
+            try:
+                min_conf = float(min_confidence)
+                query = query.filter(Incident.triage_confidence >= min_conf)
+            except ValueError:
+                return jsonify({"error": "Invalid min_confidence value"}), 400
+
+        if search_query:
+            query = query.filter(Incident.raw_text.ilike(f"%{search_query}%"))
+
+        # Get total count before pagination
+        total = query.count()
+
+        # Apply pagination and ordering
+        incidents = (
+            query.order_by(Incident.created_at.desc())
+            .limit(limit)
+            .offset(offset)
+            .all()
+        )
+
+        return jsonify({
+            "incidents": [i.to_dict() for i in incidents],
+            "total": total,
+            "limit": limit,
+            "offset": offset,
+            "filters_applied": {
+                "start_date": start_date,
+                "end_date": end_date,
+                "category": category,
+                "severity": severity,
+                "status": status,
+                "location": location,
+                "min_confidence": min_confidence,
+                "search_query": search_query
+            }
+        }), 200
+
+    except Exception as exc:
+        return jsonify({"error": f"Search failed: {exc}"}), 500
 

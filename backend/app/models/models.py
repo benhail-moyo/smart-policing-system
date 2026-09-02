@@ -21,7 +21,7 @@ class User(db.Model):
     created_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc))
 
     # Relationship back to incidents they reported
-    incidents = db.relationship("Incident", back_populates="reported_by", lazy="dynamic")
+    incidents = db.relationship("Incident", back_populates="reported_by", lazy="dynamic", foreign_keys="Incident.reported_by_id")
 
     def set_password(self, password: str):
         """Hash and store the user's password."""
@@ -58,6 +58,17 @@ class Incident(db.Model):
     triage_summary = db.Column(db.Text)                     # English one-sentence summary
     raw_gemini_response = db.Column(db.Text)                # Full Gemini output for audit
 
+    # Entity extraction results (stored as JSON)
+    extracted_entities = db.Column(db.JSON)                # Names, vehicles, locations, weapons, etc.
+
+    # Manual override fields for officers/admins
+    manual_severity = db.Column(db.String(50))              # Officer can override severity
+    manual_category = db.Column(db.String(120))             # Officer can override category
+    override_reason = db.Column(db.Text)                    # Reason for override
+    override_by_id = db.Column(db.Integer, db.ForeignKey("user.id"), nullable=True)
+    override_by = db.relationship("User", foreign_keys=[override_by_id])
+    override_at = db.Column(db.DateTime, nullable=True)
+
     # Workflow status
     status = db.Column(db.String(50), nullable=False, default="PENDING")
     # Allowed: PENDING | TRIAGED | ASSIGNED | RESOLVED
@@ -69,7 +80,7 @@ class Incident(db.Model):
 
     # Who submitted this report
     reported_by_id = db.Column(db.Integer, db.ForeignKey("user.id"), nullable=True)
-    reported_by = db.relationship("User", back_populates="incidents")
+    reported_by = db.relationship("User", back_populates="incidents", foreign_keys=[reported_by_id])
 
     created_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc))
     # When the event happened, distinct from when the report was submitted.
@@ -80,8 +91,12 @@ class Incident(db.Model):
         lng = self.lng or 31.0522
         loc = {"lat": lat, "lng": lng}
 
+        # Use manual override if available, otherwise use NLP triage
+        effective_severity = self.manual_severity or self.severity
+        effective_category = self.manual_category or self.category
+
         # Derive priority string for frontend
-        sev_str = str(self.severity or "").upper()
+        sev_str = str(effective_severity or "").upper()
         if sev_str == "HIGH" or sev_str == "5" or sev_str == "4":
             priority = "critical" if sev_str in ("HIGH", "5") else "high"
         elif sev_str == "MEDIUM" or sev_str == "3":
@@ -100,13 +115,17 @@ class Incident(db.Model):
             "raw_text": self.raw_text,
             "description": self.raw_text,
             "language_detected": self.language_detected,
-            "category": self.category or "General",
-            "type": self.category or "General",
+            "category": effective_category or "General",
+            "type": effective_category or "General",
             "severity": 5 if priority == "critical" else 4 if priority == "high" else 3 if priority == "medium" else 2,
             "priority": priority,
             "triage_confidence": self.triage_confidence,
             "triageScore": round((self.triage_confidence or 0.8) * 100),
             "triage_summary": self.triage_summary,
+            "extracted_entities": self.extracted_entities or {},
+            "manual_severity": self.manual_severity,
+            "manual_category": self.manual_category,
+            "override_reason": self.override_reason,
             "status": status_lower,
             "location": loc,
             "lat": lat,

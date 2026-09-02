@@ -27,6 +27,24 @@ def apply_compatibility_migrations():
             db.session.execute(text("ALTER TABLE incident ADD COLUMN occurred_at TIMESTAMP NULL"))
             db.session.commit()
             print("Applied schema upgrade: incident.occurred_at")
+        
+        # Migration for entity extraction and override fields
+        new_columns = ["extracted_entities", "manual_severity", "manual_category", 
+                      "override_reason", "override_by_id", "override_at"]
+        for new_col in new_columns:
+            if new_col not in columns:
+                if new_col == "extracted_entities":
+                    db.session.execute(text("ALTER TABLE incident ADD COLUMN extracted_entities JSON"))
+                elif new_col in ["manual_severity", "manual_category"]:
+                    db.session.execute(text(f"ALTER TABLE incident ADD COLUMN {new_col} VARCHAR(120)"))
+                elif new_col == "override_reason":
+                    db.session.execute(text("ALTER TABLE incident ADD COLUMN override_reason TEXT"))
+                elif new_col == "override_by_id":
+                    db.session.execute(text("ALTER TABLE incident ADD COLUMN override_by_id INTEGER"))
+                elif new_col == "override_at":
+                    db.session.execute(text("ALTER TABLE incident ADD COLUMN override_at TIMESTAMP"))
+                db.session.commit()
+                print(f"Applied schema upgrade: incident.{new_col}")
     except Exception as e:
         print(f"Note: Could not upgrade incident table: {e}")
     
