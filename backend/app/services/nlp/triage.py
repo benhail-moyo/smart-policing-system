@@ -50,13 +50,29 @@ CATEGORY (choose the single most accurate category):
 murder | assault | robbery | rape | theft | burglary | vandalism | drug_offence |
 fraud | suspicious_activity | noise_complaint | domestic_dispute | other
 
+ENTITY EXTRACTION (extract the following if present in the text):
+- person_names: names of people mentioned (victims, suspects, witnesses)
+- vehicle_descriptions: descriptions of vehicles (color, make, model, license plates)
+- location_details: specific addresses, landmarks, building names
+- weapon_descriptions: descriptions of weapons used
+- time_details: specific times mentioned
+- other_details: any other investigation-relevant information
+
 Respond ONLY with this exact JSON (no markdown, no explanation outside JSON):
 {{
   "category": "<category from list above>",
   "severity": "<HIGH | MEDIUM | LOW>",
   "confidence": <float 0.0-1.0>,
   "summary": "<one sentence English summary of the incident>",
-  "reasoning": "<one sentence explaining severity choice>"
+  "reasoning": "<one sentence explaining severity choice>",
+  "entities": {{
+    "person_names": ["<name1>", "<name2>"],
+    "vehicle_descriptions": ["<vehicle1>", "<vehicle2>"],
+    "location_details": ["<location1>", "<location2>"],
+    "weapon_descriptions": ["<weapon1>", "<weapon2>"],
+    "time_details": ["<time1>", "<time2>"],
+    "other_details": ["<detail1>", "<detail2>"]
+  }}
 }}
 
 If the report is too vague to classify with confidence > 0.4, set severity to LOW and confidence accordingly.
@@ -131,6 +147,14 @@ def _keyword_triage(text: str) -> dict:
         "summary": f"[Keyword-based triage] {text[:120]}",
         "reasoning": "Classified via keyword matching — Gemini API unavailable.",
         "raw_gemini_response": None,
+        "entities": {
+            "person_names": [],
+            "vehicle_descriptions": [],
+            "location_details": [],
+            "weapon_descriptions": [],
+            "time_details": [],
+            "other_details": []
+        }
     }
 
 
@@ -256,6 +280,17 @@ class NLPTriageService:
             confidence = float(parsed.get("confidence", 0.5))
             confidence = max(0.0, min(1.0, confidence))
 
+            # Extract entities with safe defaults
+            entities = parsed.get("entities", {})
+            entities_dict = {
+                "person_names": entities.get("person_names", []) if isinstance(entities.get("person_names"), list) else [],
+                "vehicle_descriptions": entities.get("vehicle_descriptions", []) if isinstance(entities.get("vehicle_descriptions"), list) else [],
+                "location_details": entities.get("location_details", []) if isinstance(entities.get("location_details"), list) else [],
+                "weapon_descriptions": entities.get("weapon_descriptions", []) if isinstance(entities.get("weapon_descriptions"), list) else [],
+                "time_details": entities.get("time_details", []) if isinstance(entities.get("time_details"), list) else [],
+                "other_details": entities.get("other_details", []) if isinstance(entities.get("other_details"), list) else []
+            }
+
             return {
                 "category": category,
                 "severity": severity,
@@ -263,6 +298,7 @@ class NLPTriageService:
                 "summary": str(parsed.get("summary", "No summary provided."))[:500],
                 "reasoning": str(parsed.get("reasoning", ""))[:500],
                 "raw_gemini_response": raw_text,
+                "entities": entities_dict
             }
 
         except ImportError:

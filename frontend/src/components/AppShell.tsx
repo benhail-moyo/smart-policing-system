@@ -19,6 +19,8 @@ import {
   Shield,
   LogOut,
   ChevronRight,
+  FileText,
+  TrendingUp,
 } from "lucide-react";
 
 const NAV = [
@@ -26,6 +28,8 @@ const NAV = [
   { href: "/command", label: "Command Centre", Icon: Radio, roles: ["admin"] },
   { href: "/map", label: "Crime Map", Icon: Map, roles: ["officer", "admin"] },
   { href: "/report", label: "Report Incident", Icon: Siren, roles: ["community", "officer", "admin"] },
+  { href: "/incidents", label: "Incidents", Icon: FileText, roles: ["officer", "admin"] },
+  { href: "/hotspots/trends", label: "Hotspot Trends", Icon: TrendingUp, roles: ["officer", "admin"] },
   { href: "/patrol", label: "Patrol Routes", Icon: Car, roles: ["officer", "admin"] },
   { href: "/field-log", label: "Daily Field Log", Icon: ClipboardPenLine, roles: ["officer", "admin"] },
   { href: "/analysis", label: "AI Analysis", Icon: BrainCircuit, roles: ["officer", "admin"] },
