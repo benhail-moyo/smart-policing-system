@@ -3,13 +3,14 @@ export const dynamic = "force-dynamic";
 
 export async function GET(
   request: Request,
-  { params }: { params: { hotspot_id: string } }
+  { params }: { params: Promise<{ hotspot_id: string }> }
 ) {
+  const { hotspot_id } = await params;
   const header = request.headers.get("authorization");
   const token = header?.startsWith("Bearer ") ? header.slice(7) : header;
 
   try {
-    const response = await fetch(`${backendApiUrl}/hotspots/${params.hotspot_id}/history`, {
+    const response = await fetch(`${backendApiUrl}/hotspots/${hotspot_id}/history`, {
       method: 'GET',
       headers: { 
         'Content-Type': 'application/json',

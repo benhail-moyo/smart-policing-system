@@ -1,5 +1,6 @@
 from flask import Blueprint, jsonify, request
 from flask_jwt_extended import jwt_required
+from geoalchemy2.shape import to_shape
 
 from app import db
 from app.models.models import Hotspot, PatrolRoute
@@ -19,20 +20,30 @@ def _resolve_route_inputs(requested_ids=None):
         hotspots = db.session.query(Hotspot).order_by(Hotspot.risk_score.desc()).all()
 
     if requested_ids:
-        requested = {int(hotspot_id) for hotspot_id in requested_ids}
-        hotspots = [hotspot for hotspot in hotspots if hotspot.id in requested]
+        requested = {str(hotspot_id) for hotspot_id in requested_ids}
+        hotspots = [hotspot for hotspot in hotspots if str(hotspot.hotspot_id) in requested]
 
-    hotspots = [hotspot for hotspot in hotspots if hotspot.lat is not None and hotspot.lng is not None]
-    if not hotspots:
+    # Extract lat/lng from PostGIS centroid geometry
+    hotspots_with_location = []
+    for hotspot in hotspots:
+        try:
+            geom = to_shape(hotspot.centroid)
+            hotspot.lat = geom.y
+            hotspot.lng = geom.x
+            hotspots_with_location.append(hotspot)
+        except Exception:
+            continue
+
+    if not hotspots_with_location:
         return [], None
 
     # The starting point follows the selected dataset rather than using a
     # hard-coded city coordinate.
     start_location = (
-        sum(float(hotspot.lat) for hotspot in hotspots) / len(hotspots),
-        sum(float(hotspot.lng) for hotspot in hotspots) / len(hotspots),
+        sum(float(hotspot.lat) for hotspot in hotspots_with_location) / len(hotspots_with_location),
+        sum(float(hotspot.lng) for hotspot in hotspots_with_location) / len(hotspots_with_location),
     )
-    return [hotspot.id for hotspot in hotspots], start_location
+    return [str(hotspot.hotspot_id) for hotspot in hotspots_with_location], start_location
 
 
 def _resolve_comparison_hotspots(requested_ids=None):
@@ -42,25 +53,35 @@ def _resolve_comparison_hotspots(requested_ids=None):
         hotspot_service.run_hotspot_analysis()
         hotspots = db.session.query(Hotspot).order_by(Hotspot.risk_score.desc()).all()
 
-    hotspots = [hotspot for hotspot in hotspots if hotspot.lat is not None and hotspot.lng is not None]
+    # Extract lat/lng from PostGIS centroid geometry
+    hotspots_with_location = []
+    for hotspot in hotspots:
+        try:
+            geom = to_shape(hotspot.centroid)
+            hotspot.lat = geom.y
+            hotspot.lng = geom.x
+            hotspots_with_location.append(hotspot)
+        except Exception:
+            continue
+
     if requested_ids:
-        requested = {int(hotspot_id) for hotspot_id in requested_ids}
-        hotspots = [hotspot for hotspot in hotspots if hotspot.id in requested]
+        requested = {str(hotspot_id) for hotspot_id in requested_ids}
+        hotspots_with_location = [hotspot for hotspot in hotspots_with_location if str(hotspot.hotspot_id) in requested]
     else:
-        critical_hotspots = [hotspot for hotspot in hotspots if hotspot.risk_score >= 0.6]
+        critical_hotspots = [hotspot for hotspot in hotspots_with_location if hotspot.risk_score >= 0.6]
         # A comparison needs a meaningful multi-stop route. If there are fewer
         # than three critical clusters, include the next highest-risk hotspots.
         if len(critical_hotspots) >= 3:
-            hotspots = critical_hotspots
+            hotspots_with_location = critical_hotspots
 
-    if len(hotspots) < 3:
+    if len(hotspots_with_location) < 3:
         return [], None
 
     start_location = (
-        sum(float(hotspot.lat) for hotspot in hotspots) / len(hotspots),
-        sum(float(hotspot.lng) for hotspot in hotspots) / len(hotspots),
+        sum(float(hotspot.lat) for hotspot in hotspots_with_location) / len(hotspots_with_location),
+        sum(float(hotspot.lng) for hotspot in hotspots_with_location) / len(hotspots_with_location),
     )
-    return hotspots, start_location
+    return hotspots_with_location, start_location
 
 
 def _road_comparison_route(result, route_id, name, color, hotspots):
@@ -72,7 +93,7 @@ def _road_comparison_route(result, route_id, name, color, hotspots):
                 continue  # Index zero is the patrol start, not a hotspot.
             hotspot = hotspots[point_index - 1]
             hotspot_order.append({
-                "id": hotspot.id,
+                "id": str(hotspot.hotspot_id),
                 "lat": hotspot.lat,
                 "lng": hotspot.lng,
                 "level": "critical" if hotspot.risk_score >= 0.6 else "high",
@@ -81,7 +102,7 @@ def _road_comparison_route(result, route_id, name, color, hotspots):
             })
 
     hotspot_ids = list(dict.fromkeys(item["id"] for item in hotspot_order))
-    incidents_covered = sum(hotspot.incident_count for hotspot in hotspots if hotspot.id in hotspot_ids)
+    incidents_covered = sum(hotspot.incident_count for hotspot in hotspots if str(hotspot.hotspot_id) in hotspot_ids)
     distance_km = result["total_distance_m"] / 1000
     return {
         "id": route_id,
@@ -102,7 +123,7 @@ def _road_comparison_route(result, route_id, name, color, hotspots):
 
 
 def _comparison_row(result, route_id, color):
-    hotspots = db.session.query(Hotspot).filter(Hotspot.id.in_(result.hotspot_ids)).all()
+    hotspots = db.session.query(Hotspot).filter(Hotspot.hotspot_id.in_(result.hotspot_ids)).all()
     incidents_covered = sum(hotspot.incident_count for hotspot in hotspots)
     return {
         "id": route_id,

@@ -24,6 +24,7 @@ import time
 import logging
 from dataclasses import dataclass, field
 from typing import List, Optional
+from geoalchemy2.shape import to_shape
 
 from app.models.models import Hotspot, PatrolRoute
 from app import db
@@ -59,7 +60,7 @@ class RouteEngine:
 
     def optimize(
         self,
-        hotspot_ids: List[int],
+        hotspot_ids: List[str],
         algorithm: str = "both",
         start_location: Optional[tuple] = None,
         save_to_db: bool = False
@@ -80,10 +81,10 @@ class RouteEngine:
         if algorithm not in ("dijkstra", "genetic", "both"):
             raise ValueError("algorithm must be one of: dijkstra, genetic, both")
 
-        requested_ids = list(dict.fromkeys(int(hotspot_id) for hotspot_id in hotspot_ids))
+        requested_ids = list(dict.fromkeys(str(hotspot_id) for hotspot_id in hotspot_ids))
         hotspots_by_id = {
-            hotspot.id: hotspot
-            for hotspot in db.session.query(Hotspot).filter(Hotspot.id.in_(requested_ids)).all()
+            str(hotspot.hotspot_id): hotspot
+            for hotspot in db.session.query(Hotspot).filter(Hotspot.hotspot_id.in_(requested_ids)).all()
         }
         hotspots = [hotspots_by_id[hotspot_id] for hotspot_id in requested_ids if hotspot_id in hotspots_by_id]
         if not hotspots:
@@ -110,7 +111,7 @@ class RouteEngine:
 
     def compare_algorithms(
         self,
-        hotspot_ids: List[int],
+        hotspot_ids: List[str],
         start_location: Optional[tuple] = None,
     ) -> dict:
         """
@@ -175,7 +176,7 @@ class RouteEngine:
             estimated_time_minutes=distance / self.AVERAGE_SPEED_KMH * 60,
             hotspots_covered=len(hotspots),
             computation_time_ms=elapsed_ms,
-            hotspot_ids=[h.id for h in hotspots],
+            hotspot_ids=[str(h.hotspot_id) for h in hotspots],
             route_explanation=solver.get_tour_explanation(),
         )
 
@@ -208,7 +209,7 @@ class RouteEngine:
                 estimated_time_minutes=distance / self.AVERAGE_SPEED_KMH * 60,
                 hotspots_covered=len(hotspots),
                 computation_time_ms=elapsed_ms,
-                hotspot_ids=[h.id for h in hotspots],
+                hotspot_ids=[str(h.hotspot_id) for h in hotspots],
                 route_explanation=[
                     {"step": step + 1, "lat": point[0], "lng": point[1]}
                     for step, point in enumerate(route)
@@ -225,10 +226,16 @@ class RouteEngine:
             return self._run_dijkstra(waypoints, hotspots)
 
     def _hotspots_to_waypoints(self, hotspots: List[Hotspot]) -> list:
+        from geoalchemy2.shape import to_shape
         waypoints = []
         for h in hotspots:
-            if h.lat is not None and h.lng is not None:
-                waypoints.append((float(h.lat), float(h.lng)))
+            try:
+                geom = to_shape(h.centroid)
+                lat = geom.y
+                lng = geom.x
+                waypoints.append((float(lat), float(lng)))
+            except Exception:
+                continue
         return waypoints
 
     def _calculate_total_distance(self, waypoints: list) -> float:
