@@ -221,7 +221,7 @@ export default function CrimeMap({
             `<div style="min-width:170px">
               <b>${i.type}</b> <span style="color:${color}">(${i.priority})</span><br/>
               ${i.description}<br/>
-              <small>${i.suburb ?? ""} · severity ${i.severity}/5 · ${i.status}</small>
+              <small>${i.suburb ?? ""} · severity ${i.severity}/5 · ${i.status} Ref: <a href="/incidents?ref=${i.id}" style="color:#06b6d4;text-decoration:underline;">#${i.id}</a></small>
             </div>`
           )
           .addTo(layer);

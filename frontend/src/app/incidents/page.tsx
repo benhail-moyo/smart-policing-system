@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import AppShell from "@/components/AppShell";
 import { api, getStoredUser } from "@/lib/client";
 import { Search, Filter, FileText, Calendar, MapPin, AlertTriangle, Shield, CheckCircle2, Clock, Edit, X } from "lucide-react";
@@ -44,6 +45,7 @@ type FilterState = {
 };
 
 function IncidentsInner() {
+  const searchParams = useSearchParams();
   const [incidents, setIncidents] = useState<Incident[]>([]);
   const [filteredIncidents, setFilteredIncidents] = useState<Incident[]>([]);
   const [loading, setLoading] = useState(true);
@@ -82,6 +84,18 @@ function IncidentsInner() {
       setLoading(false);
     }
   }, [user]);
+
+  // Handle ref parameter from map popup
+  useEffect(() => {
+    const refParam = searchParams.get("ref");
+    if (refParam && !loading && incidents.length > 0) {
+      const incidentId = parseInt(refParam);
+      const incident = incidents.find(inc => inc.id === incidentId);
+      if (incident) {
+        setSelectedIncident(incident);
+      }
+    }
+  }, [searchParams, incidents, loading]);
 
   useEffect(() => {
     let filtered = incidents;
