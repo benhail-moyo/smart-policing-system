@@ -7,8 +7,9 @@ import AppShell from "@/components/AppShell";
 import { api, getStoredUser } from "@/lib/client";
 import type { MapDeployment } from "@/components/CrimeMap";
 import { Radio, Footprints, Car, ClipboardList, MapPin, Plus, ShieldAlert, UsersRound, CalendarDays, LockKeyhole, TrendingUp } from "lucide-react";
+import { LoadingSpinner } from "@/components/ui/LoadingSpinner";
 
-const CrimeMap = dynamic(() => import("@/components/CrimeMap"), { ssr: false, loading: () => <div className="flex h-full items-center justify-center text-slate-400">Loading operational map…</div> });
+const CrimeMap = dynamic(() => import("@/components/CrimeMap"), { ssr: false, loading: () => <div className="flex h-full items-center justify-center text-slate-400"><div className="flex flex-col items-center gap-3"><LoadingSpinner size="lg" /><span className="text-sm">Loading operational map…</span></div></div> });
 
 type Plan = { id: number; title: string; type: string; areaName: string; scheduledFor?: string; personnel: number; notes: string; status: string };
 type Log = { id: number; officer: string; date: string; shift: string; areaName: string; summary: string; status: string };
