@@ -15,6 +15,7 @@ import {
   Radio,
   ShieldCheck,
 } from "lucide-react";
+import { StatCardSkeleton, BarChartSkeleton, ListSkeleton } from "@/components/ui/SkeletonLoader";
 
 type Stats = {
   total: number;
@@ -87,7 +88,39 @@ function DashboardInner() {
       )}
 
       {!stats ? (
-        <div className="text-slate-400">Loading stats…</div>
+        <>
+          <StatCardSkeleton count={4} />
+          <div className="mt-6 grid gap-4 lg:grid-cols-2">
+            <div className="rounded-2xl border border-slate-800 bg-slate-900/60 p-5">
+              <h2 className="mb-4 flex items-center gap-2 text-sm font-semibold text-slate-300">
+                <BarChart3 className="h-4 w-4 text-blue-400" />
+                Incidents by priority
+              </h2>
+              <BarChartSkeleton bars={4} />
+            </div>
+            <div className="rounded-2xl border border-slate-800 bg-slate-900/60 p-5">
+              <h2 className="mb-4 flex items-center gap-2 text-sm font-semibold text-slate-300">
+                <Clock className="h-4 w-4 text-yellow-400" />
+                7-day trend
+              </h2>
+              <div className="flex h-40 items-end gap-2">
+                {Array.from({ length: 7 }).map((_, i) => (
+                  <div key={i} className="flex flex-1 flex-col items-center gap-1">
+                    <div className="w-full rounded-t bg-slate-800 animate-pulse" style={{ height: `${Math.random() * 80 + 20}%` }} />
+                    <div className="h-3 w-8 bg-slate-800 animate-pulse rounded" />
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+          <div className="mt-6 rounded-2xl border border-slate-800 bg-slate-900/60 p-5">
+            <h2 className="mb-4 flex items-center gap-2 text-sm font-semibold text-slate-300">
+              <Siren className="h-4 w-4 text-red-400" />
+              Top crime categories
+            </h2>
+            <ListSkeleton count={6} />
+          </div>
+        </>
       ) : (
         <>
           <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">

@@ -22,6 +22,7 @@ import {
   FileText,
   TrendingUp,
 } from "lucide-react";
+import { LoadingSpinner } from "@/components/ui/LoadingSpinner";
 
 const NAV = [
   { href: "/", label: "Dashboard", Icon: LayoutDashboard, roles: ["community", "officer", "admin"] },
@@ -60,7 +61,10 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
   if (!ready || !user) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-slate-950 text-slate-400">
-        Loading…
+        <div className="flex flex-col items-center gap-3">
+          <LoadingSpinner size="lg" />
+          <span className="text-sm">Loading…</span>
+        </div>
       </div>
     );
   }

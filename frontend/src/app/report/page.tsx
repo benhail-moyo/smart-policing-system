@@ -8,18 +8,21 @@ import { CRIME_TYPES } from "@/lib/crime";
 import {
   Siren,
   MapPin,
-  Loader2,
   Send,
   AlertTriangle,
   Clock,
   ArrowRight,
 } from "lucide-react";
+import { LoadingSpinner } from "@/components/ui/LoadingSpinner";
 
 const CrimeMap = dynamic(() => import("@/components/CrimeMap"), {
   ssr: false,
   loading: () => (
     <div className="flex h-full items-center justify-center text-slate-400">
-      Loading map…
+      <div className="flex flex-col items-center gap-3">
+        <LoadingSpinner size="lg" />
+        <span className="text-sm">Loading map…</span>
+      </div>
     </div>
   ),
 });
@@ -189,7 +192,7 @@ function ReportInner() {
             className="flex w-full items-center justify-center gap-2 rounded-lg bg-red-600 py-2.5 text-sm font-semibold hover:bg-red-500 disabled:opacity-50"
           >
             {submitting ? (
-              <Loader2 className="h-4 w-4 animate-spin" />
+              <LoadingSpinner size="sm" />
             ) : (
               <Send className="h-4 w-4" />
             )}
