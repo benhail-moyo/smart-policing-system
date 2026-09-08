@@ -15,11 +15,11 @@ import {
   ShieldAlert,
   Lightbulb,
   Download,
-  Loader2,
   Calendar,
   AlertCircle,
   CheckCircle2,
 } from "lucide-react";
+import { LoadingSpinner } from "@/components/ui/LoadingSpinner";
 
 type Report = {
   generatedAt: string;
@@ -165,7 +165,7 @@ function AnalysisInner() {
             className="flex items-center gap-2 rounded-lg bg-purple-600 px-4 py-2 text-sm font-semibold hover:bg-purple-500 disabled:opacity-50"
           >
             {loading ? (
-              <Loader2 className="h-4 w-4 animate-spin" />
+              <LoadingSpinner size="sm" />
             ) : (
               <BrainCircuit className="h-4 w-4" />
             )}
@@ -208,7 +208,7 @@ function AnalysisInner() {
 
       {loading && (
         <div className="flex flex-col items-center justify-center gap-4 rounded-2xl border border-slate-800 bg-slate-900/60 py-20 text-center">
-          <Loader2 className="h-12 w-12 animate-spin text-purple-400" />
+          <LoadingSpinner size="lg" />
           <div className="text-sm text-slate-400">
             Running intelligence analysis across {periodDays} days of data…
           </div>

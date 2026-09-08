@@ -5,6 +5,7 @@ import { useSearchParams } from "next/navigation";
 import AppShell from "@/components/AppShell";
 import { api, getStoredUser } from "@/lib/client";
 import { Search, Filter, FileText, Calendar, MapPin, AlertTriangle, Shield, CheckCircle2, Clock, Edit, X } from "lucide-react";
+import { TableSkeleton } from "@/components/ui/SkeletonLoader";
 
 type Incident = {
   id: number;
@@ -161,9 +162,19 @@ function IncidentsInner() {
   if (loading) {
     return (
       <div className="min-h-full bg-slate-950 p-4 md:p-7">
-        <div className="flex h-full items-center justify-center text-slate-400">
-          Loading incidents...
+        <div className="mb-6">
+          <div className="mb-2 flex items-center gap-2 text-cyan-300">
+            <FileText className="h-5 w-5" />
+            <span className="text-xs font-bold uppercase tracking-[0.24em]">
+              Incident Management
+            </span>
+          </div>
+          <h1 className="text-3xl font-bold">Incidents</h1>
+          <p className="mt-1 text-sm text-slate-400">
+            View and manage all reported incidents with full details and triage information
+          </p>
         </div>
+        <TableSkeleton rows={8} columns={7} />
       </div>
     );
   }

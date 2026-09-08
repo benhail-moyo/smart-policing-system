@@ -5,6 +5,7 @@ import Link from "next/link";
 import AppShell from "@/components/AppShell";
 import { api, getStoredUser } from "@/lib/client";
 import { TrendingUp, MapPin, AlertTriangle, Clock, Filter } from "lucide-react";
+import { TableSkeleton } from "@/components/ui/SkeletonLoader";
 
 type Hotspot = {
   hotspot_id: string;
@@ -80,9 +81,19 @@ function HotspotTrendsInner() {
   if (loading) {
     return (
       <div className="min-h-full bg-slate-950 p-4 md:p-7">
-        <div className="flex h-full items-center justify-center text-slate-400">
-          Loading hotspot trends...
+        <div className="mb-6">
+          <div className="mb-2 flex items-center gap-2 text-cyan-300">
+            <TrendingUp className="h-5 w-5" />
+            <span className="text-xs font-bold uppercase tracking-[0.24em]">
+              Hotspot Analysis
+            </span>
+          </div>
+          <h1 className="text-3xl font-bold">Hotspot Trends</h1>
+          <p className="mt-1 text-sm text-slate-400">
+            Track hotspot evolution and risk patterns over time
+          </p>
         </div>
+        <TableSkeleton rows={8} columns={8} />
       </div>
     );
   }

@@ -10,18 +10,21 @@ import {
   Car,
   Play,
   ShieldAlert,
-  Loader2,
   ArrowLeft,
   CheckCircle2,
   Route,
   Star,
 } from "lucide-react";
+import { LoadingSpinner } from "@/components/ui/LoadingSpinner";
 
 const CrimeMap = dynamic(() => import("@/components/CrimeMap"), {
   ssr: false,
   loading: () => (
     <div className="flex h-full items-center justify-center text-slate-400">
-      Loading map…
+      <div className="flex flex-col items-center gap-3">
+        <LoadingSpinner size="lg" />
+        <span className="text-sm">Loading map…</span>
+      </div>
     </div>
   ),
 });
@@ -133,7 +136,7 @@ function PatrolInner() {
           className="flex w-full items-center justify-center gap-2 rounded-lg bg-blue-600 py-2.5 text-sm font-semibold hover:bg-blue-500 disabled:opacity-50"
         >
           {loading ? (
-            <Loader2 className="h-4 w-4 animate-spin" />
+            <LoadingSpinner size="sm" />
           ) : (
             <Play className="h-4 w-4" />
           )}
