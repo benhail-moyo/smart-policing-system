@@ -23,3 +23,13 @@ def require_role(*roles):
             return f(*args, **kwargs)
         return decorated
     return decorator
+
+
+# Legacy decorator for compatibility with existing code.
+# New code should use app.security.decorators.role_required instead.
+def legacy_require_role(*roles):
+    """
+    Legacy decorator for Flask-JWT-Extended compatibility.
+    New endpoints should use app.security.decorators.role_required instead.
+    """
+    return require_role(*roles)
