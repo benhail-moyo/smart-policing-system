@@ -87,6 +87,52 @@ def apply_compatibility_migrations():
                 print("Created spatial index on hotspot.centroid")
     except Exception as e:
         print(f"Note: Spatial index creation: {e}")
+    
+    # Migration for multi-vehicle patrol route support
+    try:
+        patrol_route_table_exists = inspect(db.engine).has_table("patrol_route")
+        if patrol_route_table_exists:
+            try:
+                patrol_route_columns = {column["name"] for column in inspect(db.engine).get_columns("patrol_route")}
+                new_columns = ["vehicle_id", "generation_id"]
+                for new_col in new_columns:
+                    if new_col not in patrol_route_columns:
+                        if new_col == "vehicle_id":
+                            db.session.execute(text("ALTER TABLE patrol_route ADD COLUMN vehicle_id INTEGER"))
+                        elif new_col == "generation_id":
+                            db.session.execute(text("ALTER TABLE patrol_route ADD COLUMN generation_id VARCHAR(36)"))
+                        db.session.commit()
+                        print(f"Applied schema upgrade: patrol_route.{new_col}")
+            except Exception as table_error:
+                print(f"Note: Could not inspect patrol_route columns: {table_error}")
+    except Exception as e:
+        print(f"Note: Could not check patrol_route table: {e}")
+    
+    # Create audit_log table for multi-vehicle route override tracking
+    try:
+        audit_log_table_exists = inspect(db.engine).has_table("audit_log")
+        if not audit_log_table_exists:
+            db.session.execute(text("""
+                CREATE TABLE audit_log (
+                    id SERIAL PRIMARY KEY,
+                    entity_type VARCHAR(50) NOT NULL,
+                    entity_id VARCHAR(100) NOT NULL,
+                    action VARCHAR(50) NOT NULL,
+                    previous_state JSON,
+                    new_state JSON,
+                    override_reason TEXT,
+                    override_by_id INTEGER,
+                    vehicle_id INTEGER,
+                    generation_id VARCHAR(36),
+                    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    ip_address VARCHAR(45),
+                    FOREIGN KEY (override_by_id) REFERENCES "user"(id)
+                )
+            """))
+            db.session.commit()
+            print("Created audit_log table for multi-vehicle route override tracking")
+    except Exception as e:
+        print(f"Note: Could not create audit_log table: {e}")
 
 app = create_app()
 with app.app_context():

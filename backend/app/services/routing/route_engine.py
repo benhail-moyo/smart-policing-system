@@ -19,14 +19,20 @@ ARCHITECTURE DECISION — Why two algorithms?
              optimize for multiple objectives simultaneously (distance
              AND hotspot coverage AND fuel).
   Academic value: demonstrating this tradeoff IS the contribution.
+
+MULTI-VEHICLE EXTENSION:
+  The optimize_multi_vehicle() method adds geographic pre-partitioning
+  for multi-vehicle scenarios while reusing existing single-vehicle GA/Dijkstra
+  logic unchanged. This is a heuristic decoupling approach, not joint VRP optimization.
 """
 import time
 import logging
+import uuid
 from dataclasses import dataclass, field
-from typing import List, Optional
+from typing import List, Optional, Dict, Any
 from geoalchemy2.shape import to_shape
 
-from app.models.models import Hotspot, PatrolRoute
+from app.models.models import Hotspot
 from app import db
 
 logger = logging.getLogger(__name__)
@@ -108,6 +114,202 @@ class RouteEngine:
                 self._save_route(result)
 
         return results
+
+    def optimize_multi_vehicle(
+        self,
+        hotspot_ids: List[str],
+        vehicle_count: int,
+        depot_locations: Optional[List[tuple]] = None,
+        algorithm: str = "both",
+        start_location: Optional[tuple] = None,
+        save_to_db: bool = False
+    ) -> Dict[str, Any]:
+        """
+        Run multi-vehicle route optimization with geographic pre-partitioning.
+        
+        This method implements a heuristic decoupling approach:
+        1. Geographically partition hotspots among vehicles (KMeans clustering)
+        2. Run existing single-vehicle GA/Dijkstra independently on each partition
+        3. Return N labeled route results
+        
+        IMPORTANT: This does NOT perform joint VRP optimization. Partition assignment
+        and route ordering are decoupled. Load imbalance across vehicles is expected.
+        
+        Args:
+            hotspot_ids: IDs of hotspots to include in the patrol.
+            vehicle_count: Number of vehicles to partition among.
+            depot_locations: Optional list of (lat, lng) for each vehicle's starting point.
+                          If None, assumes single depot (all vehicles from same location).
+                          If provided, must have length == vehicle_count.
+            algorithm: 'dijkstra' | 'genetic' | 'both'
+            start_location: (lat, lng) of patrol start point (used if depot_locations is None).
+            save_to_db: Whether to persist results to database.
+        
+        Returns:
+            Dict with:
+            - 'generation_id': UUID grouping all routes from this request
+            - 'vehicle_count': Number of vehicles
+            - 'routes': List of route results, each with vehicle_id
+            - 'partition_metadata': Information about partition sizes and fallback usage
+        
+        Raises:
+            ValueError: If vehicle_count <= 0 or other validation fails
+        """
+        algorithm = str(algorithm or "both").lower()
+        if algorithm not in ("dijkstra", "genetic", "both"):
+            raise ValueError("algorithm must be one of: dijkstra, genetic, both")
+        
+        # Regression requirement: N=1 must behave identically to single-vehicle system
+        if vehicle_count == 1:
+            logger.info("Single vehicle requested - using existing single-vehicle path")
+            single_results = self.optimize(
+                hotspot_ids,
+                algorithm=algorithm,
+                start_location=start_location,
+                save_to_db=save_to_db
+            )
+            
+            # Wrap in multi-vehicle response format for consistency
+            generation_id = str(uuid.uuid4())
+            wrapped_routes = []
+            for result in single_results:
+                route_dict = self._result_to_dict(result)
+                route_dict['vehicle_id'] = 1
+                route_dict['generation_id'] = generation_id
+                wrapped_routes.append(route_dict)
+            
+            return {
+                'generation_id': generation_id,
+                'vehicle_count': 1,
+                'routes': wrapped_routes,
+                'partition_metadata': {
+                    'partition_sizes': [len(hotspot_ids)],
+                    'fallback_used': False,
+                    'load_imbalance': 0.0
+                }
+            }
+        
+        # Validate and load hotspots
+        requested_ids = list(dict.fromkeys(str(hotspot_id) for hotspot_id in hotspot_ids))
+        hotspots_by_id = {
+            str(hotspot.hotspot_id): hotspot
+            for hotspot in db.session.query(Hotspot).filter(Hotspot.hotspot_id.in_(requested_ids)).all()
+        }
+        hotspots = [hotspots_by_id[hotspot_id] for hotspot_id in requested_ids if hotspot_id in hotspots_by_id]
+        
+        if not hotspots:
+            raise ValueError("No valid hotspots found for provided IDs")
+        
+        # Extract hotspot centroids
+        hotspot_centroids = self._hotspots_to_waypoints(hotspots)
+        
+        # Determine depot locations
+        if depot_locations is None:
+            # Single depot: all vehicles start from same location
+            if start_location:
+                depot_locations = [start_location] * vehicle_count
+            else:
+                # Use centroid of all hotspots as default start
+                avg_lat = sum(h[0] for h in hotspot_centroids) / len(hotspot_centroids)
+                avg_lng = sum(h[1] for h in hotspot_centroids) / len(hotspot_centroids)
+                depot_locations = [(avg_lat, avg_lng)] * vehicle_count
+                logger.info(f"No start_location provided, using hotspot centroid: ({avg_lat:.4f}, {avg_lng:.4f})")
+        
+        # Partition hotspots
+        from .partitioning import HotspotPartitioner
+        partitioner = HotspotPartitioner(random_state=42)
+        partition_result = partitioner.partition_hotspots(
+            hotspot_centroids,
+            vehicle_count,
+            depot_locations=depot_locations
+        )
+        
+        # Log partition metadata for dissertation validation
+        logger.info(
+            f"Partition complete: sizes={partition_result.partition_sizes}, "
+            f"fallback_used={partition_result.fallback_used}"
+        )
+        
+        # Calculate load imbalance metric
+        if partition_result.partition_sizes:
+            max_size = max(partition_result.partition_sizes)
+            min_size = min(partition_result.partition_sizes)
+            load_imbalance = (max_size - min_size) / max(len(hotspots), 1) if max_size > 0 else 0.0
+        else:
+            load_imbalance = 0.0
+        
+        # Run routing for each vehicle's partition
+        generation_id = str(uuid.uuid4())
+        all_routes = []
+        
+        for vehicle_id, vehicle_hotspot_indices in enumerate(partition_result.vehicle_groups):
+            if not vehicle_hotspot_indices:
+                # Vehicle assigned zero hotspots - return empty route
+                logger.warning(f"Vehicle {vehicle_id} assigned zero hotspots")
+                empty_route = {
+                    'vehicle_id': vehicle_id,
+                    'generation_id': generation_id,
+                    'algorithm': algorithm,
+                    'waypoints': [],
+                    'total_distance_km': 0.0,
+                    'estimated_fuel_litres': 0.0,
+                    'estimated_time_minutes': 0.0,
+                    'hotspots_covered': 0,
+                    'computation_time_ms': 0.0,
+                    'hotspot_ids': [],
+                    'geometry': None,
+                    'empty_route': True
+                }
+                all_routes.append(empty_route)
+                continue
+            
+            # Map partition indices back to original hotspot objects
+            # Create a mapping from centroid to hotspot
+            centroid_to_hotspot = {centroid: hotspot for centroid, hotspot in zip(hotspot_centroids, hotspots)}
+            vehicle_hotspots = [centroid_to_hotspot[centroid] for centroid in vehicle_hotspot_indices]
+            vehicle_hotspot_ids = [str(h.hotspot_id) for h in vehicle_hotspots]
+            
+            # Build waypoints for this vehicle
+            vehicle_waypoints = vehicle_hotspot_indices
+            vehicle_depot = depot_locations[vehicle_id] if depot_locations else start_location
+            if vehicle_depot:
+                vehicle_waypoints = [vehicle_depot] + vehicle_waypoints
+            
+            # Run existing single-vehicle routing
+            vehicle_results = []
+            if algorithm in ("dijkstra", "both"):
+                vehicle_results.append(self._run_dijkstra(vehicle_waypoints, vehicle_hotspots))
+            
+            if algorithm in ("genetic", "both"):
+                vehicle_results.append(self._run_genetic(vehicle_waypoints, vehicle_hotspots))
+            
+            # Convert to dict format and add vehicle metadata
+            for result in vehicle_results:
+                route_dict = self._result_to_dict(result)
+                route_dict['vehicle_id'] = vehicle_id
+                route_dict['generation_id'] = generation_id
+                all_routes.append(route_dict)
+            
+            # Save to database if requested
+            if save_to_db:
+                for result in vehicle_results:
+                    result_dict = self._result_to_dict(result)
+                    self._save_multi_vehicle_route(
+                        result_dict,
+                        vehicle_id=vehicle_id,
+                        generation_id=generation_id
+                    )
+        
+        return {
+            'generation_id': generation_id,
+            'vehicle_count': vehicle_count,
+            'routes': all_routes,
+            'partition_metadata': {
+                'partition_sizes': partition_result.partition_sizes,
+                'fallback_used': partition_result.fallback_used,
+                'load_imbalance': round(load_imbalance, 3)
+            }
+        }
 
     def compare_algorithms(
         self,
@@ -253,6 +455,7 @@ class RouteEngine:
         return round(total, 3)
 
     def _save_route(self, result: RouteResult):
+        from app.models.models import PatrolRoute
         route = PatrolRoute(
             algorithm=result.algorithm,
             waypoints=[{"lat": lat, "lng": lng} for lat, lng in result.waypoints],
@@ -265,6 +468,48 @@ class RouteEngine:
         )
         db.session.add(route)
         db.session.commit()
+    
+    def _save_multi_vehicle_route(
+        self,
+        result_dict: dict,
+        vehicle_id: int,
+        generation_id: str
+    ):
+        """
+        Save a multi-vehicle route with vehicle identification.
+        
+        Args:
+            result_dict: Route result dictionary from _result_to_dict
+            vehicle_id: Vehicle identifier (0-indexed)
+            generation_id: UUID grouping all routes from this request
+        """
+        try:
+            from app.models.models import PatrolRoute
+            
+            # Handle empty routes (vehicles with zero hotspots)
+            if result_dict.get('empty_route'):
+                logger.info(f"Skipping save for empty route (vehicle {vehicle_id})")
+                return
+                
+            route = PatrolRoute(
+                algorithm=result_dict.get('algorithm'),
+                waypoints=result_dict.get('waypoints', []),
+                total_distance_km=result_dict.get('total_distance_km', 0),
+                estimated_fuel_litres=result_dict.get('estimated_fuel_litres', 0),
+                estimated_time_minutes=result_dict.get('estimated_time_minutes', 0),
+                hotspots_covered=result_dict.get('hotspots_covered', 0),
+                computation_time_ms=result_dict.get('computation_time_ms', 0),
+                hotspot_ids=result_dict.get('hotspot_ids', []),
+                vehicle_id=vehicle_id,
+                generation_id=generation_id
+            )
+            db.session.add(route)
+            db.session.commit()
+            logger.info(f"Saved route for vehicle {vehicle_id} in generation {generation_id}")
+        except Exception as e:
+            db.session.rollback()
+            logger.error(f"Failed to save multi-vehicle route: {e}")
+            raise
 
     def _result_to_dict(self, r: RouteResult) -> dict:
         # Generate simple GeoJSON LineString from waypoints for straight-line routes

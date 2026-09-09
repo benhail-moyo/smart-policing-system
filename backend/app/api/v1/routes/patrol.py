@@ -151,15 +151,38 @@ def optimize_patrol():
         return jsonify({"error": "No routable hotspots are available in the incident dataset"}), 422
 
     try:
-        # Use original hotspot-based routing (straight lines)
-        # Set save_to_db=False to avoid duplicate routes
-        results = route_engine.optimize(
-            hotspot_ids,
-            algorithm=data.get("algorithm", "both"),
-            start_location=start_location,
-            save_to_db=False
-        )
-        return jsonify({"routes": [route_engine._result_to_dict(result) for result in results]}), 200
+        # Validate vehicle_count parameter
+        vehicle_count = data.get("vehicle_count", 1)
+        if not isinstance(vehicle_count, int) or vehicle_count <= 0:
+            return jsonify({"error": "vehicle_count must be a positive integer"}), 400
+        
+        # Support for multi-depot routing
+        depot_locations = data.get("depot_locations")
+        if depot_locations is not None:
+            if not isinstance(depot_locations, list) or len(depot_locations) != vehicle_count:
+                return jsonify({"error": "depot_locations must be a list of length vehicle_count"}), 400
+        
+        # Use multi-vehicle routing if vehicle_count > 1, otherwise single-vehicle
+        if vehicle_count > 1:
+            logger.info(f"Multi-vehicle routing requested: {vehicle_count} vehicles")
+            results = route_engine.optimize_multi_vehicle(
+                hotspot_ids,
+                vehicle_count=vehicle_count,
+                depot_locations=depot_locations,
+                algorithm=data.get("algorithm", "both"),
+                start_location=start_location,
+                save_to_db=False
+            )
+            return jsonify(results), 200
+        else:
+            # Single vehicle - use existing logic
+            results = route_engine.optimize(
+                hotspot_ids,
+                algorithm=data.get("algorithm", "both"),
+                start_location=start_location,
+                save_to_db=False
+            )
+            return jsonify({"routes": [route_engine._result_to_dict(result) for result in results]}), 200
             
     except Exception as exc:
         return jsonify({"error": f"Route generation failed: {exc}"}), 500
@@ -171,8 +194,14 @@ def compare_patrol_algorithms():
     """
     Generate both algorithm candidates from the live hotspot dataset.
     Extends existing comparison with road network comparison when provided.
+    Supports multi-vehicle comparison via vehicle_count parameter.
     """
     data = request.get_json(silent=True) or {}
+    
+    # Validate vehicle_count parameter
+    vehicle_count = data.get("vehicle_count", 1)
+    if not isinstance(vehicle_count, int) or vehicle_count <= 0:
+        return jsonify({"error": "vehicle_count must be a positive integer"}), 400
     
     # Run the road-network comparison for either explicit points or the
     # automatically selected current critical hotspots.
@@ -203,13 +232,17 @@ def compare_patrol_algorithms():
         )
         routes = [baseline_route, genetic_route]
         best = max(routes, key=lambda route: route["efficiencyScore"])
-        return jsonify({
+        
+        response = {
             "comparison": routes,
             "recommendedRouteId": best["id"],
             "routes": routes,
             "hotspots": [hotspot.to_dict() for hotspot in hotspots],
             "road_network_comparison": road_comparison,
-        }), 200
+            "vehicle_count": vehicle_count
+        }
+        
+        return jsonify(response), 200
     except ValueError as ve:
         return jsonify({"error": str(ve)}), 422
     except RuntimeError as re:
@@ -243,7 +276,7 @@ def route_metrics():
 @jwt_required()
 @require_role("officer", "admin")
 def save_route():
-    """Explicitly save a route to the database."""
+    """Explicitly save a route to the database. Supports multi-vehicle routes."""
     data = request.get_json(silent=True) or {}
     
     try:
@@ -256,6 +289,8 @@ def save_route():
             hotspots_covered=data.get("hotspots_covered", 0),
             computation_time_ms=data.get("computation_time_ms", 0),
             hotspot_ids=data.get("hotspot_ids", []),
+            vehicle_id=data.get("vehicle_id"),
+            generation_id=data.get("generation_id")
         )
         db.session.add(route)
         db.session.commit()

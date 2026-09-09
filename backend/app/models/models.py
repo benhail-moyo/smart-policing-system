@@ -230,6 +230,9 @@ class PatrolRoute(db.Model):
     hotspots_covered = db.Column(db.Integer, nullable=False)
     hotspot_ids = db.Column(db.JSON, nullable=False, default=list)
     computation_time_ms = db.Column(db.Float, nullable=False)
+    # Multi-vehicle support
+    vehicle_id = db.Column(db.Integer, nullable=True)           # Vehicle identifier (0-indexed)
+    generation_id = db.Column(db.String(36), nullable=True)     # UUID grouping routes from same request
     created_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc))
 
     def to_dict(self):
@@ -243,9 +246,15 @@ class PatrolRoute(db.Model):
         algo_name = self.algorithm.title() if self.algorithm else "Dijkstra"
         color = "#2563eb" if self.algorithm == "dijkstra" else "#f97316"
 
+        # Multi-vehicle display name
+        if self.vehicle_id is not None:
+            name = f"Vehicle {self.vehicle_id + 1} — {algo_name} Optimized"
+        else:
+            name = f"Route {self.id} — {algo_name} Optimized"
+
         return {
             "id": f"route-{self.id}",
-            "name": f"Route {self.id} — {algo_name} Optimized",
+            "name": name,
             "color": color,
             "algorithm": self.algorithm,
             "waypoints": waypoints,
@@ -256,7 +265,58 @@ class PatrolRoute(db.Model):
             "hotspots_covered": self.hotspots_covered,
             "hotspot_ids": self.hotspot_ids,
             "computation_time_ms": self.computation_time_ms,
+            "vehicle_id": self.vehicle_id,
+            "generation_id": self.generation_id,
             "created_at": self.created_at.isoformat() if self.created_at else None,
+        }
+
+
+class AuditLog(db.Model):
+    """
+    Immutable audit log for tracking automated recommendations and human overrides.
+    Supports multi-vehicle route override tracking with vehicle identification.
+    """
+    __tablename__ = "audit_log"
+
+    id = db.Column(db.Integer, primary_key=True)
+    entity_type = db.Column(db.String(50), nullable=False)     # 'incident', 'route', 'hotspot', etc.
+    entity_id = db.Column(db.String(100), nullable=False)      # ID of the affected entity
+    action = db.Column(db.String(50), nullable=False)          # 'created', 'updated', 'overridden', 'deleted'
+    
+    # Original values before change
+    previous_state = db.Column(db.JSON, nullable=True)
+    
+    # New values after change
+    new_state = db.Column(db.JSON, nullable=True)
+    
+    # Override-specific fields
+    override_reason = db.Column(db.Text, nullable=True)
+    override_by_id = db.Column(db.Integer, db.ForeignKey("user.id"), nullable=True)
+    override_by = db.relationship("User", foreign_keys=[override_by_id])
+    
+    # Multi-vehicle support for route overrides
+    vehicle_id = db.Column(db.Integer, nullable=True)          # Vehicle identifier for route overrides
+    generation_id = db.Column(db.String(36), nullable=True)    # Generation ID for route overrides
+    
+    # Metadata
+    created_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc), nullable=False)
+    ip_address = db.Column(db.String(45), nullable=True)       # For security audit
+    
+    def to_dict(self):
+        return {
+            "id": self.id,
+            "entity_type": self.entity_type,
+            "entity_id": self.entity_id,
+            "action": self.action,
+            "previous_state": self.previous_state,
+            "new_state": self.new_state,
+            "override_reason": self.override_reason,
+            "override_by": self.override_by.name if self.override_by else None,
+            "override_by_id": self.override_by_id,
+            "vehicle_id": self.vehicle_id,
+            "generation_id": self.generation_id,
+            "created_at": self.created_at.isoformat() if self.created_at else None,
+            "ip_address": self.ip_address,
         }
 
 
