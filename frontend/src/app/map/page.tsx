@@ -17,6 +17,8 @@ import {
   Calendar,
   Clock,
   Layers,
+  Tag,
+  AlertTriangle,
 } from "lucide-react";
 import { LoadingSpinner } from "@/components/ui/LoadingSpinner";
 
@@ -38,6 +40,8 @@ type TimeFilter = {
   hourTo: string;
   customFrom: string;
   customTo: string;
+  category: string;
+  priority: string;
 };
 
 const PERIOD_LABELS: { value: TimeFilter["period"]; label: string }[] = [
@@ -67,9 +71,15 @@ function MapInner() {
     hourTo: "all",
     customFrom: "",
     customTo: "",
+    category: "all",
+    priority: "all",
   });
   const [showFilters, setShowFilters] = useState(false);
   const canPatrol = isPatrolAllowed(getStoredUser());
+
+  // Extract unique categories and priorities from incidents
+  const categories = Array.from(new Set(allIncidents.map((inc) => inc.type))).sort();
+  const priorities = Array.from(new Set(allIncidents.map((inc) => inc.priority))).sort();
 
   const applyFilter = useCallback(
     (raw: MapIncident[]) => {
@@ -113,6 +123,16 @@ function MapInner() {
           if (hf <= ht) return h >= hf && h <= ht;
           return h >= hf || h <= ht;
         });
+      }
+
+      // category filter
+      if (filter.category !== "all") {
+        filtered = filtered.filter((r) => r.type === filter.category);
+      }
+
+      // priority filter
+      if (filter.priority !== "all") {
+        filtered = filtered.filter((r) => r.priority === filter.priority);
       }
 
       setIncidents(filtered);
@@ -187,7 +207,7 @@ function MapInner() {
           <h1 className="text-lg font-bold">Crime Map — Harare</h1>
           <p className="text-xs text-slate-400">
             {incidents.length} incidents · {hotspots.length} hotspots
-            {filter.period !== "all" && (
+            {(filter.period !== "all" || filter.category !== "all" || filter.priority !== "all") && (
               <span className="ml-2 text-blue-400">
                 (filtered from {allIncidents.length})
               </span>
@@ -337,6 +357,48 @@ function MapInner() {
             </>
           )}
 
+          <div className="mx-2 h-5 w-px bg-slate-700" />
+
+          <div className="flex items-center gap-1.5">
+            <Tag className="h-3.5 w-3.5 text-slate-400" />
+            <span className="text-xs text-slate-400">Category:</span>
+          </div>
+          <select
+            value={filter.category}
+            onChange={(e) =>
+              setFilter((f) => ({ ...f, category: e.target.value }))
+            }
+            className="rounded-md border border-slate-700 bg-slate-800 px-2 py-1 text-xs"
+          >
+            <option value="all">All categories</option>
+            {categories.map((cat) => (
+              <option key={cat} value={cat}>
+                {cat}
+              </option>
+            ))}
+          </select>
+
+          <div className="mx-2 h-5 w-px bg-slate-700" />
+
+          <div className="flex items-center gap-1.5">
+            <AlertTriangle className="h-3.5 w-3.5 text-slate-400" />
+            <span className="text-xs text-slate-400">Priority:</span>
+          </div>
+          <select
+            value={filter.priority}
+            onChange={(e) =>
+              setFilter((f) => ({ ...f, priority: e.target.value }))
+            }
+            className="rounded-md border border-slate-700 bg-slate-800 px-2 py-1 text-xs"
+          >
+            <option value="all">All priorities</option>
+            {priorities.map((pri) => (
+              <option key={pri} value={pri}>
+                {pri}
+              </option>
+            ))}
+          </select>
+
           <button
             onClick={() =>
               setFilter({
@@ -345,6 +407,8 @@ function MapInner() {
                 hourTo: "all",
                 customFrom: "",
                 customTo: "",
+                category: "all",
+                priority: "all",
               })
             }
             className="ml-auto rounded-md bg-slate-800 px-2.5 py-1 text-xs text-slate-400 hover:text-slate-200"
