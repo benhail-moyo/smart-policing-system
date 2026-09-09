@@ -28,6 +28,8 @@ services:
       - DATABASE_URL=postgresql://crime_watch:crime_watch@db:5432/crime_watch
       - FLASK_ENV=development
       - FLASK_APP=wsgi.py
+      - GEMINI_API_KEY=${GEMINI_API_KEY:-}
+      - JWT_SECRET_KEY=6de0d2b3426b72a7d6ab91f3988f92af34014a9783008ec07efb70faef8100bf
     command: sh -c "python init_db.py && flask run --host=0.0.0.0 --port=5000"
     ports:
       - "5000:5000"

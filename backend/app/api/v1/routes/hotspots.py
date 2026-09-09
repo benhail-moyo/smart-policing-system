@@ -4,7 +4,7 @@ from flask_jwt_extended import jwt_required
 from app import db
 from app.models.models import Hotspot, HotspotHistory
 from app.services.gis.hotspot_analysis import hotspot_service
-from app.utils.auth_decorators import require_role
+from app.security.decorators import login_required, role_required
 
 hotspots_bp = Blueprint("hotspots", __name__)
 
@@ -95,7 +95,8 @@ def get_hotspot_history(hotspot_id):
 
 
 @hotspots_bp.get("/heatmap")
-@jwt_required()
+@login_required
+@role_required("officer", "admin")
 def heatmap():
     required = ("min_lng", "min_lat", "max_lng", "max_lat")
     missing = [name for name in required if request.args.get(name) is None]

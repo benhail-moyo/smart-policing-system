@@ -1,5 +1,4 @@
 import { backendApiUrl } from "@/lib/backend-api";
-import api from "@/lib/api";
 
 export const dynamic = "force-dynamic";
 
@@ -17,8 +16,10 @@ export async function POST(request: Request) {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        email: String(body.email).toLowerCase(),
+        // Backend expects 'identifier' (accepts email OR officer_id)
+        identifier: String(body.email).toLowerCase(),
         password: String(body.password),
+        ...(body.totp_code && { totp_code: String(body.totp_code) }),
       }),
     });
 
@@ -28,7 +29,9 @@ export async function POST(request: Request) {
       return Response.json(data, { status: response.status });
     }
 
-    return Response.json(data);
+    // Normalise response: expose both 'token' and 'access_token' so the
+    // frontend can use either key without caring which one the backend sends.
+    return Response.json({ ...data, token: data.access_token ?? data.token });
   } catch (error) {
     return Response.json(
       { error: "Failed to connect to authentication service" },

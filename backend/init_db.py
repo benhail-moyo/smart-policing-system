@@ -11,82 +11,85 @@ def apply_compatibility_migrations():
     columns to an existing database.  Keep this transitional migration here so a
     previously created development Docker volume can start after model changes.
     """
-    # First, ensure PostGIS extension is created before any other operations
+    # Apply security-related migrations for existing databases
     try:
-        db.session.execute(text("CREATE EXTENSION IF NOT EXISTS postgis"))
-        db.session.commit()
-        print("PostGIS extension enabled")
-    except Exception as e:
-        print(f"Warning: PostGIS extension setup failed: {e}")
-        print("Ensure your database has PostGIS installed")
-    
-    # Migration for incident.occurred_at
-    try:
+        # Check and add incident.occurred_at if missing
         columns = {column["name"] for column in inspect(db.engine).get_columns("incident")}
         if "occurred_at" not in columns:
             db.session.execute(text("ALTER TABLE incident ADD COLUMN occurred_at TIMESTAMP NULL"))
             db.session.commit()
             print("Applied schema upgrade: incident.occurred_at")
-        
-        # Migration for entity extraction and override fields
-        new_columns = ["extracted_entities", "manual_severity", "manual_category", 
-                      "override_reason", "override_by_id", "override_at"]
-        for new_col in new_columns:
-            if new_col not in columns:
-                if new_col == "extracted_entities":
-                    db.session.execute(text("ALTER TABLE incident ADD COLUMN extracted_entities JSON"))
-                elif new_col in ["manual_severity", "manual_category"]:
-                    db.session.execute(text(f"ALTER TABLE incident ADD COLUMN {new_col} VARCHAR(120)"))
-                elif new_col == "override_reason":
-                    db.session.execute(text("ALTER TABLE incident ADD COLUMN override_reason TEXT"))
-                elif new_col == "override_by_id":
-                    db.session.execute(text("ALTER TABLE incident ADD COLUMN override_by_id INTEGER"))
-                elif new_col == "override_at":
-                    db.session.execute(text("ALTER TABLE incident ADD COLUMN override_at TIMESTAMP"))
+
+        # Check and add security columns to user table if missing
+        user_columns = {column["name"] for column in inspect(db.engine).get_columns("user")}
+        security_columns = {
+            'officer_id': 'VARCHAR(50)',
+            'totp_secret': 'VARCHAR(64)',
+            'totp_enabled': 'BOOLEAN DEFAULT FALSE',
+            'failed_login_count': 'INTEGER DEFAULT 0',
+            'locked_until': 'TIMESTAMP NULL'
+        }
+
+        for col_name, col_type in security_columns.items():
+            if col_name not in user_columns:
+                db.session.execute(text(f"ALTER TABLE user ADD COLUMN {col_name} {col_type}"))
                 db.session.commit()
-                print(f"Applied schema upgrade: incident.{new_col}")
+                print(f"Applied schema upgrade: user.{col_name}")
+
+        # Create security tables if they don't exist
+        inspector = inspect(db.engine)
+        existing_tables = inspector.get_table_names()
+
+        if 'refresh_tokens' not in existing_tables:
+            db.session.execute(text("""
+                CREATE TABLE refresh_tokens (
+                    id SERIAL PRIMARY KEY,
+                    user_id INTEGER REFERENCES user(id) NOT NULL,
+                    token_hash VARCHAR(128) NOT NULL,
+                    issued_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    expires_at TIMESTAMP NOT NULL,
+                    revoked BOOLEAN DEFAULT FALSE
+                )
+            """))
+            db.session.commit()
+            print("Created table: refresh_tokens")
+
+        if 'audit_log' not in existing_tables:
+            # Check if using PostgreSQL (for JSONB support) or SQLite
+            db_url = str(db.engine.url)
+            if 'postgresql' in db_url:
+                db.session.execute(text("""
+                    CREATE TABLE audit_log (
+                        id SERIAL PRIMARY KEY,
+                        user_id INTEGER REFERENCES user(id),
+                        event_type VARCHAR(50) NOT NULL,
+                        event_metadata JSONB,
+                        ip_address VARCHAR(45),
+                        user_agent VARCHAR(255),
+                        created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                        CONSTRAINT valid_event_type CHECK (event_type IN ('LOGIN_SUCCESS','LOGIN_FAILED','MFA_FAILED','LOCKOUT','ROLE_CHANGE','TOKEN_REFRESH','LOGOUT'))
+                    )
+                """))
+            else:
+                # SQLite fallback
+                db.session.execute(text("""
+                    CREATE TABLE audit_log (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        user_id INTEGER REFERENCES user(id),
+                        event_type VARCHAR(50) NOT NULL,
+                        event_metadata TEXT,
+                        ip_address VARCHAR(45),
+                        user_agent VARCHAR(255),
+                        created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                        CHECK (event_type IN ('LOGIN_SUCCESS','LOGIN_FAILED','MFA_FAILED','LOCKOUT','ROLE_CHANGE','TOKEN_REFRESH','LOGOUT'))
+                    )
+                """))
+            db.session.commit()
+            print("Created table: audit_log")
+
     except Exception as e:
-        print(f"Note: Could not upgrade incident table: {e}")
-    
-    # Fresh start migration for hotspot tables with PostGIS
-    try:
-        hotspot_table_exists = inspect(db.engine).has_table("hotspot")
-        if hotspot_table_exists:
-            # Check if old hotspot table exists (with lat/lng columns or integer id)
-            hotspot_columns = {column["name"] for column in inspect(db.engine).get_columns("hotspot")}
-            
-            # Check for old schema indicators
-            has_old_location = "lat" in hotspot_columns and "lng" in hotspot_columns
-            has_integer_id = "id" in hotspot_columns and "hotspot_id" not in hotspot_columns
-            
-            if has_old_location or has_integer_id:
-                print("Detected old hotspot schema - performing fresh start migration")
-                # Drop old tables
-                db.session.execute(text("DROP TABLE IF EXISTS hotspot CASCADE"))
-                db.session.execute(text("DROP TABLE IF EXISTS hotspot_history CASCADE"))
-                db.session.commit()
-                print("Dropped old hotspot tables for fresh start")
-    except Exception as e:
-        print(f"Note: Could not check hotspot columns (table may not exist yet): {e}")
-    
-    # Create spatial index on hotspot centroid if table exists
-    try:
-        hotspot_table_exists = inspect(db.engine).has_table("hotspot")
-        if hotspot_table_exists:
-            # Check if spatial index already exists
-            index_exists = False
-            try:
-                indexes = inspect(db.engine).get_indexes("hotspot")
-                index_exists = any(idx["name"] == "idx_hotspot_centroid" for idx in indexes)
-            except:
-                pass
-            
-            if not index_exists:
-                db.session.execute(text("CREATE INDEX idx_hotspot_centroid ON hotspot USING GIST (centroid)"))
-                db.session.commit()
-                print("Created spatial index on hotspot.centroid")
-    except Exception as e:
-        print(f"Note: Spatial index creation: {e}")
+        print(f"Warning during schema migrations: {e}")
+        # Continue anyway - the main create_all() will handle new installations
 
 app = create_app()
 with app.app_context():
