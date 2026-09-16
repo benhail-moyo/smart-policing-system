@@ -289,7 +289,7 @@ def get_incident(incident_id: int):
 
 @incidents_bp.put("/<int:incident_id>/override")
 @jwt_required()
-@require_role("officer", "admin")
+@role_required("officer", "admin")
 def override_incident(incident_id: int):
     """
     Override triage assessment (officers/admin only).
@@ -343,7 +343,7 @@ def override_incident(incident_id: int):
 
 @incidents_bp.get("/search")
 @jwt_required()
-@require_role("officer", "admin")
+@role_required("officer", "admin")
 def search_incidents():
     """
     Advanced search and filtering for incidents (officers/admin only).

@@ -56,36 +56,38 @@ def list_all_hotspots():
     return jsonify({"hotspots": dicts}), 200
 
 
-@hotspots_bp.get("/<uuid:hotspot_id>")
+@hotspots_bp.get("/<string:hotspot_id>")
 @jwt_required(optional=True)
 def get_hotspot(hotspot_id):
     """Get single hotspot with summary stats."""
-    hotspot = db.session.query(Hotspot).filter(Hotspot.hotspot_id == hotspot_id).first()
+    hotspot_id_str = str(hotspot_id)
+    hotspot = db.session.query(Hotspot).filter(Hotspot.hotspot_id == hotspot_id_str).first()
     if not hotspot:
         return jsonify({"error": "Hotspot not found"}), 404
     
     # Calculate summary stats
     history_count = db.session.query(HotspotHistory).filter(
-        HotspotHistory.hotspot_id == hotspot_id
+        HotspotHistory.hotspot_id == hotspot_id_str
     ).count()
     
     return jsonify({
         "hotspot": hotspot.to_dict(),
         "summary": {
             "total_runs_tracked": history_count,
-            "first_detected_at": hotspot.first_detected_at.isoformat(),
-            "last_matched_at": hotspot.last_matched_at.isoformat(),
+            "first_detected_at": hotspot.first_detected_at.isoformat() if hotspot.first_detected_at else None,
+            "last_matched_at": hotspot.last_matched_at.isoformat() if hotspot.last_matched_at else None,
             "current_streak": hotspot.consecutive_misses
         }
     }), 200
 
 
-@hotspots_bp.get("/<uuid:hotspot_id>/history")
+@hotspots_bp.get("/<string:hotspot_id>/history")
 @jwt_required(optional=True)
 def get_hotspot_history(hotspot_id):
     """Get full history time series for a hotspot."""
+    hotspot_id_str = str(hotspot_id)
     history = db.session.query(HotspotHistory).filter(
-        HotspotHistory.hotspot_id == hotspot_id
+        HotspotHistory.hotspot_id == hotspot_id_str
     ).order_by(HotspotHistory.run_timestamp.asc()).all()
     
     return jsonify({

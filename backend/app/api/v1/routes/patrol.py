@@ -1,6 +1,7 @@
 from flask import Blueprint, jsonify, request
 from flask_jwt_extended import jwt_required
 from geoalchemy2.shape import to_shape
+import logging
 
 from app import db
 from app.models.models import Hotspot, PatrolRoute
@@ -9,6 +10,7 @@ from app.services.routing.route_engine import route_engine
 from app.security.decorators import login_required, role_required
 
 patrol_bp = Blueprint("patrol", __name__)
+logger = logging.getLogger(__name__)
 
 
 def _resolve_route_inputs(requested_ids=None):
@@ -23,14 +25,19 @@ def _resolve_route_inputs(requested_ids=None):
         requested = {str(hotspot_id) for hotspot_id in requested_ids}
         hotspots = [hotspot for hotspot in hotspots if str(hotspot.hotspot_id) in requested]
 
-    # Extract lat/lng from PostGIS centroid geometry
+    # Extract lat/lng from hotspot columns (SQLite compatible)
     hotspots_with_location = []
     for hotspot in hotspots:
         try:
-            geom = to_shape(hotspot.centroid)
-            hotspot.lat = geom.y
-            hotspot.lng = geom.x
-            hotspots_with_location.append(hotspot)
+            # Use lat/lng columns directly for SQLite compatibility
+            if hotspot.lat is not None and hotspot.lng is not None:
+                hotspots_with_location.append(hotspot)
+            else:
+                # Fallback to Geometry if available (PostGIS)
+                geom = to_shape(hotspot.centroid)
+                hotspot.lat = geom.y
+                hotspot.lng = geom.x
+                hotspots_with_location.append(hotspot)
         except Exception:
             continue
 
@@ -53,14 +60,19 @@ def _resolve_comparison_hotspots(requested_ids=None):
         hotspot_service.run_hotspot_analysis()
         hotspots = db.session.query(Hotspot).order_by(Hotspot.risk_score.desc()).all()
 
-    # Extract lat/lng from PostGIS centroid geometry
+    # Extract lat/lng from hotspot columns (SQLite compatible)
     hotspots_with_location = []
     for hotspot in hotspots:
         try:
-            geom = to_shape(hotspot.centroid)
-            hotspot.lat = geom.y
-            hotspot.lng = geom.x
-            hotspots_with_location.append(hotspot)
+            # Use lat/lng columns directly for SQLite compatibility
+            if hotspot.lat is not None and hotspot.lng is not None:
+                hotspots_with_location.append(hotspot)
+            else:
+                # Fallback to Geometry if available (PostGIS)
+                geom = to_shape(hotspot.centroid)
+                hotspot.lat = geom.y
+                hotspot.lng = geom.x
+                hotspots_with_location.append(hotspot)
         except Exception:
             continue
 
@@ -203,8 +215,72 @@ def compare_patrol_algorithms():
     if not isinstance(vehicle_count, int) or vehicle_count <= 0:
         return jsonify({"error": "vehicle_count must be a positive integer"}), 400
     
-    # Run the road-network comparison for either explicit points or the
-    # automatically selected current critical hotspots.
+    # For multi-vehicle routing, use the route engine with geographic partitioning
+    if vehicle_count > 1:
+        try:
+            hotspots, start_location = _resolve_comparison_hotspots(data.get("hotspot_ids"))
+            if not hotspots:
+                return jsonify({"error": "At least three routable hotspots are required for comparison"}), 422
+            
+            hotspot_ids = [str(hotspot.hotspot_id) for hotspot in hotspots]
+            
+            # Use multi-vehicle routing with geographic partitioning
+            multi_vehicle_results = route_engine.optimize_multi_vehicle(
+                hotspot_ids,
+                vehicle_count=vehicle_count,
+                algorithm="both",
+                start_location=start_location,
+                save_to_db=False
+            )
+            
+            # Format routes for frontend display
+            formatted_routes = []
+            for route_dict in multi_vehicle_results['routes']:
+                # Find corresponding hotspot for metadata
+                route_hotspots = [h for h in hotspots if str(h.hotspot_id) in route_dict.get('hotspot_ids', [])]
+                formatted_route = {
+                    "id": f"{route_dict['algorithm']}_vehicle_{route_dict['vehicle_id']}",
+                    "name": f"{route_dict['algorithm'].title()} - Vehicle {route_dict['vehicle_id'] + 1}",
+                    "color": "#2563eb" if route_dict['algorithm'] == 'dijkstra' else "#f97316",
+                    "algorithm": route_dict['algorithm'],
+                    "distanceKm": round(route_dict['total_distance_km'], 2),
+                    "hotspotsCovered": route_dict['hotspots_covered'],
+                    "hotCoveragePct": round(route_dict['hotspots_covered'] / len(hotspots) * 100) if hotspots else 0,
+                    "incidentsCovered": sum(h.incident_count for h in route_hotspots),
+                    "estMinutes": round(route_dict['estimated_time_minutes']),
+                    "efficiencyScore": round(
+                        (sum(h.incident_count for h in route_hotspots) * 10 + route_dict['hotspots_covered'] * 5)
+                        / max(route_dict['total_distance_km'], 0.1),
+                        1
+                    ),
+                    "geometry": route_dict.get('geometry'),
+                    "waypoints": route_dict.get('waypoints', []),
+                    "vehicle_id": route_dict['vehicle_id'],
+                    "generation_id": route_dict['generation_id']
+                }
+                formatted_routes.append(formatted_route)
+            
+            # Select best route by efficiency score
+            best = max(formatted_routes, key=lambda route: route["efficiencyScore"]) if formatted_routes else None
+            
+            response = {
+                "comparison": formatted_routes,
+                "recommendedRouteId": best["id"] if best else None,
+                "routes": formatted_routes,
+                "hotspots": [hotspot.to_dict() for hotspot in hotspots],
+                "vehicle_count": vehicle_count,
+                "generation_id": multi_vehicle_results['generation_id'],
+                "partition_metadata": multi_vehicle_results['partition_metadata'],
+                "multi_vehicle": True
+            }
+            
+            return jsonify(response), 200
+            
+        except Exception as exc:
+            logger.error(f"Multi-vehicle comparison failed: {exc}")
+            return jsonify({"error": f"Multi-vehicle comparison failed: {exc}"}), 500
+    
+    # Single-vehicle: use existing road network comparison
     try:
         if "start" in data and "stops" in data:
             route_data = data
@@ -239,7 +315,8 @@ def compare_patrol_algorithms():
             "routes": routes,
             "hotspots": [hotspot.to_dict() for hotspot in hotspots],
             "road_network_comparison": road_comparison,
-            "vehicle_count": vehicle_count
+            "vehicle_count": vehicle_count,
+            "multi_vehicle": False
         }
         
         return jsonify(response), 200

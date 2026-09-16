@@ -4,6 +4,10 @@ import uuid
 from app import db
 from app.security.passwords import hash_password, verify_password
 
+# Use String for UUID compatibility with both SQLite and PostgreSQL
+# PostgreSQL will handle UUID conversions through migrations
+UUID_TYPE = db.String(36)
+
 
 class User(db.Model):
     __tablename__ = "user"
@@ -160,20 +164,26 @@ class Incident(db.Model):
 class Hotspot(db.Model):
     __tablename__ = "hotspot"
 
-    hotspot_id = db.Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    centroid = db.Column(Geometry('POINT', srid=4326), nullable=False)
-    convex_hull = db.Column(Geometry('POLYGON', srid=4326))
+    hotspot_id = db.Column(UUID_TYPE, primary_key=True, default=lambda: str(uuid.uuid4()))
+    # Use lat/lng columns for SQLite compatibility
+    lat = db.Column(db.Float, nullable=False)
+    lng = db.Column(db.Float, nullable=False)
+    # Geometry columns only for PostGIS (conditional)
+    centroid = db.Column(db.Text, nullable=True)  # Store as WKT string for SQLite compatibility
+    convex_hull = db.Column(db.Text, nullable=True)  # Store as WKT string for SQLite compatibility
     dominant_category = db.Column(db.String(120))
     incident_count = db.Column(db.Integer, nullable=False, default=0)
     risk_score = db.Column(db.Float, nullable=False, default=0.0)
     status = db.Column(db.String(20), nullable=False, default='emerging')  # 'emerging', 'active', 'cooling', 'dormant'
     consecutive_misses = db.Column(db.Integer, nullable=False, default=0)
-    first_detected_at = db.Column(db.DateTime, nullable=False)
-    last_matched_at = db.Column(db.DateTime, nullable=False)
-    updated_at = db.Column(db.DateTime, nullable=False)
+    first_detected_at = db.Column(db.DateTime, nullable=False, default=lambda: datetime.now(timezone.utc))
+    last_matched_at = db.Column(db.DateTime, nullable=False, default=lambda: datetime.now(timezone.utc))
+    updated_at = db.Column(db.DateTime, nullable=False, default=lambda: datetime.now(timezone.utc))
 
     def to_dict(self):
-        geom = to_shape(self.centroid)
+        # Use lat/lng columns directly for SQLite compatibility
+        lat = self.lat if self.lat is not None else -17.8292
+        lng = self.lng if self.lng is not None else 31.0522
         
         score = float(self.risk_score or 0.0)
         level = "high" if score >= 0.6 else "medium" if score >= 0.3 else "low"
@@ -181,9 +191,9 @@ class Hotspot(db.Model):
 
         return {
             "hotspot_id": str(self.hotspot_id),
-            "centroid": {"lat": geom.y, "lng": geom.x},
-            "lat": geom.y,
-            "lng": geom.x,
+            "centroid": {"lat": lat, "lng": lng},
+            "lat": lat,
+            "lng": lng,
             "count": self.incident_count,
             "weight": weight,
             "radius": min(900, 300 + self.incident_count * 70),
@@ -204,9 +214,13 @@ class HotspotHistory(db.Model):
     __tablename__ = "hotspot_history"
 
     history_id = db.Column(db.Integer, primary_key=True)
-    hotspot_id = db.Column(UUID(as_uuid=True), db.ForeignKey("hotspot.hotspot_id"), nullable=False)
-    run_timestamp = db.Column(db.DateTime, nullable=False)
-    centroid = db.Column(Geometry('POINT', srid=4326), nullable=False)
+    hotspot_id = db.Column(UUID_TYPE, db.ForeignKey("hotspot.hotspot_id"), nullable=False)
+    run_timestamp = db.Column(db.DateTime, nullable=False, default=lambda: datetime.now(timezone.utc))
+    # Use lat/lng columns for SQLite compatibility
+    lat = db.Column(db.Float, nullable=False)
+    lng = db.Column(db.Float, nullable=False)
+    # Geometry column only for PostGIS (conditional)
+    centroid = db.Column(db.Text, nullable=True)  # Store as WKT string for SQLite compatibility
     incident_count = db.Column(db.Integer, nullable=False)
     risk_score = db.Column(db.Float, nullable=False)
     volume_score = db.Column(db.Float, nullable=False)
@@ -216,13 +230,21 @@ class HotspotHistory(db.Model):
     dominant_category = db.Column(db.String(120))
 
     def to_dict(self):
-        geom = to_shape(self.centroid)
+        # Parse centroid from WKT string or use lat/lng columns
+        if self.centroid and isinstance(self.centroid, str):
+            from shapely.wkt import loads as wkt_loads
+            geom = wkt_loads(self.centroid)
+            centroid_lat = geom.y
+            centroid_lng = geom.x
+        else:
+            centroid_lat = self.lat
+            centroid_lng = self.lng
         
         return {
             "history_id": self.history_id,
             "hotspot_id": str(self.hotspot_id),
             "run_timestamp": self.run_timestamp.isoformat() if self.run_timestamp else None,
-            "centroid": {"lat": geom.y, "lng": geom.x},
+            "centroid": {"lat": centroid_lat, "lng": centroid_lng},
             "incident_count": self.incident_count,
             "risk_score": self.risk_score,
             "volume_score": self.volume_score,
@@ -289,15 +311,24 @@ class PatrolRoute(db.Model):
 
 class AuditLog(db.Model):
     """
-    Immutable audit log for tracking automated recommendations and human overrides.
-    Supports multi-vehicle route override tracking with vehicle identification.
+    Comprehensive audit log for security events, entity tracking, and multi-vehicle route overrides.
+    Supports both security event logging and entity override tracking with vehicle identification.
     """
     __tablename__ = "audit_log"
 
     id = db.Column(db.Integer, primary_key=True)
-    entity_type = db.Column(db.String(50), nullable=False)     # 'incident', 'route', 'hotspot', etc.
-    entity_id = db.Column(db.String(100), nullable=False)      # ID of the affected entity
-    action = db.Column(db.String(50), nullable=False)          # 'created', 'updated', 'overridden', 'deleted'
+    
+    # Security event fields
+    user_id = db.Column(db.Integer, db.ForeignKey("user.id"), nullable=True)  # nullable for system events
+    event_type = db.Column(db.String(50), nullable=False)  # LOGIN_SUCCESS, LOGIN_FAILED, MFA_FAILED, LOCKOUT, ROLE_CHANGE, TOKEN_REFRESH, LOGOUT, ROUTE_OVERRIDE, etc.
+    event_metadata = db.Column(db.JSON, nullable=True)  # Additional event-specific data
+    ip_address = db.Column(db.String(45), nullable=True)  # IPv4 or IPv6
+    user_agent = db.Column(db.String(255), nullable=True)
+    
+    # Entity tracking fields for overrides
+    entity_type = db.Column(db.String(50), nullable=True)     # 'incident', 'route', 'hotspot', etc.
+    entity_id = db.Column(db.String(100), nullable=True)      # ID of the affected entity
+    action = db.Column(db.String(50), nullable=True)          # 'created', 'updated', 'overridden', 'deleted'
     
     # Original values before change
     previous_state = db.Column(db.JSON, nullable=True)
@@ -316,7 +347,13 @@ class AuditLog(db.Model):
     
     # Metadata
     created_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc), nullable=False)
-    ip_address = db.Column(db.String(45), nullable=True)       # For security audit
+
+    __table_args__ = (
+        db.CheckConstraint(
+            "event_type IN ('LOGIN_SUCCESS','LOGIN_FAILED','MFA_FAILED','LOCKOUT','ROLE_CHANGE','TOKEN_REFRESH','LOGOUT','ROUTE_OVERRIDE','ENTITY_UPDATE')",
+            name="valid_event_type"
+        ),
+    )
     
     def to_dict(self):
         return {
@@ -405,23 +442,3 @@ class RefreshToken(db.Model):
     issued_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc))
     expires_at = db.Column(db.DateTime, nullable=False)
     revoked = db.Column(db.Boolean, default=False, nullable=False)
-
-
-class AuditLog(db.Model):
-    """Audit log for security events and user actions."""
-    __tablename__ = "audit_log"
-
-    id = db.Column(db.Integer, primary_key=True)
-    user_id = db.Column(db.Integer, db.ForeignKey("user.id"), nullable=True)  # nullable for system events
-    event_type = db.Column(db.String(50), nullable=False)  # LOGIN_SUCCESS, LOGIN_FAILED, MFA_FAILED, LOCKOUT, ROLE_CHANGE, TOKEN_REFRESH, LOGOUT
-    event_metadata = db.Column(db.JSON, nullable=True)  # Additional event-specific data
-    ip_address = db.Column(db.String(45), nullable=True)  # IPv4 or IPv6
-    user_agent = db.Column(db.String(255), nullable=True)
-    created_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc), nullable=False)
-
-    __table_args__ = (
-        db.CheckConstraint(
-            "event_type IN ('LOGIN_SUCCESS','LOGIN_FAILED','MFA_FAILED','LOCKOUT','ROLE_CHANGE','TOKEN_REFRESH','LOGOUT')",
-            name="valid_event_type"
-        ),
-    )

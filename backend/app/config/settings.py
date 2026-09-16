@@ -14,6 +14,12 @@ class BaseConfig:
     GA_GENERATIONS = int(os.getenv("GA_GENERATIONS", "200"))
     GA_MUTATION_RATE = float(os.getenv("GA_MUTATION_RATE", "0.02"))
     GA_CROSSOVER_RATE = float(os.getenv("GA_CROSSOVER_RATE", "0.8"))
+    # Flask-Limiter configuration
+    RATELIMIT_STORAGE_URL = os.getenv("REDIS_URL", "memory://")
+    RATELIMIT_DEFAULT = os.getenv("RATELIMIT_DEFAULT", "2000 per hour")
+    RATELIMIT_HEADERS_ENABLED = True
+    # GeoAlchemy2 configuration for SQLite compatibility
+    SPADEQA = False
 
 
 class DevelopmentConfig(BaseConfig):

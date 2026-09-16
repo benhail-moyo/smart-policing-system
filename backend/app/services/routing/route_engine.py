@@ -200,8 +200,11 @@ class RouteEngine:
         if not hotspots:
             raise ValueError("No valid hotspots found for provided IDs")
         
-        # Extract hotspot centroids
+        # Extract hotspot centroids - use only the requested hotspots
         hotspot_centroids = self._hotspots_to_waypoints(hotspots)
+        
+        # Log for debugging
+        logger.info(f"Processing {len(hotspots)} hotspots for {vehicle_count} vehicles")
         
         # Determine depot locations
         if depot_locations is None:
@@ -218,16 +221,38 @@ class RouteEngine:
         # Partition hotspots
         from .partitioning import HotspotPartitioner
         partitioner = HotspotPartitioner(random_state=42)
-        partition_result = partitioner.partition_hotspots(
-            hotspot_centroids,
-            vehicle_count,
-            depot_locations=depot_locations
-        )
+        
+        logger.info(f"Calling partitioner with {len(hotspot_centroids)} centroids, {vehicle_count} vehicles")
+        # Only pass depot_locations if we have multiple distinct depot locations
+        # If all vehicles start from same location, use KMeans clustering
+        if depot_locations:
+            # Convert to tuples for set comparison
+            depot_tuples = [tuple(depot) if depot is not None else None for depot in depot_locations]
+            distinct_depots = len(set(depot_tuples))
+            use_depot_partitioning = distinct_depots > 1
+        else:
+            use_depot_partitioning = False
+        
+        if use_depot_partitioning:
+            logger.info(f"Using multi-depot partitioning with {distinct_depots} distinct depots")
+            partition_result = partitioner.partition_hotspots(
+                hotspot_centroids,
+                vehicle_count,
+                depot_locations=depot_locations
+            )
+        else:
+            logger.info("Using single-depot KMeans partitioning")
+            partition_result = partitioner.partition_hotspots(
+                hotspot_centroids,
+                vehicle_count,
+                depot_locations=None
+            )
         
         # Log partition metadata for dissertation validation
         logger.info(
             f"Partition complete: sizes={partition_result.partition_sizes}, "
-            f"fallback_used={partition_result.fallback_used}"
+            f"fallback_used={partition_result.fallback_used}, "
+            f"total_groups={len(partition_result.vehicle_groups)}"
         )
         
         # Calculate load imbalance metric
@@ -242,8 +267,8 @@ class RouteEngine:
         generation_id = str(uuid.uuid4())
         all_routes = []
         
-        for vehicle_id, vehicle_hotspot_indices in enumerate(partition_result.vehicle_groups):
-            if not vehicle_hotspot_indices:
+        for vehicle_id, vehicle_hotspot_centroids in enumerate(partition_result.vehicle_groups):
+            if not vehicle_hotspot_centroids:
                 # Vehicle assigned zero hotspots - return empty route
                 logger.warning(f"Vehicle {vehicle_id} assigned zero hotspots")
                 empty_route = {
@@ -263,14 +288,26 @@ class RouteEngine:
                 all_routes.append(empty_route)
                 continue
             
-            # Map partition indices back to original hotspot objects
-            # Create a mapping from centroid to hotspot
-            centroid_to_hotspot = {centroid: hotspot for centroid, hotspot in zip(hotspot_centroids, hotspots)}
-            vehicle_hotspots = [centroid_to_hotspot[centroid] for centroid in vehicle_hotspot_indices]
+            # Map partition centroids back to original hotspot objects
+            # Handle duplicate coordinates by using index-based mapping
+            centroid_to_indices = {}
+            for idx, centroid in enumerate(hotspot_centroids):
+                if centroid not in centroid_to_indices:
+                    centroid_to_indices[centroid] = []
+                centroid_to_indices[centroid].append(idx)
+            
+            # For each centroid in vehicle's partition, get the corresponding hotspot
+            vehicle_hotspots = []
+            for centroid in vehicle_hotspot_centroids:
+                if centroid in centroid_to_indices and centroid_to_indices[centroid]:
+                    # Get the first available hotspot for this centroid
+                    hotspot_idx = centroid_to_indices[centroid].pop(0)
+                    vehicle_hotspots.append(hotspots[hotspot_idx])
+            
             vehicle_hotspot_ids = [str(h.hotspot_id) for h in vehicle_hotspots]
             
             # Build waypoints for this vehicle
-            vehicle_waypoints = vehicle_hotspot_indices
+            vehicle_waypoints = vehicle_hotspot_centroids
             vehicle_depot = depot_locations[vehicle_id] if depot_locations else start_location
             if vehicle_depot:
                 vehicle_waypoints = [vehicle_depot] + vehicle_waypoints
@@ -428,14 +465,19 @@ class RouteEngine:
             return self._run_dijkstra(waypoints, hotspots)
 
     def _hotspots_to_waypoints(self, hotspots: List[Hotspot]) -> list:
-        from geoalchemy2.shape import to_shape
         waypoints = []
         for h in hotspots:
             try:
-                geom = to_shape(h.centroid)
-                lat = geom.y
-                lng = geom.x
-                waypoints.append((float(lat), float(lng)))
+                # Use lat/lng columns directly for SQLite compatibility
+                if h.lat is not None and h.lng is not None:
+                    waypoints.append((float(h.lat), float(h.lng)))
+                else:
+                    # Fallback to Geometry if available (PostGIS)
+                    from geoalchemy2.shape import to_shape
+                    geom = to_shape(h.centroid)
+                    lat = geom.y
+                    lng = geom.x
+                    waypoints.append((float(lat), float(lng)))
             except Exception:
                 continue
         return waypoints
