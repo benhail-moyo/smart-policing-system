@@ -10,13 +10,10 @@ from flask_sqlalchemy import SQLAlchemy
 from flask_migrate import Migrate
 from flask_jwt_extended import JWTManager
 from flask_cors import CORS
-<<<<<<< HEAD
-from dotenv import load_dotenv
-import os
-=======
 from flask_limiter import Limiter
 from flask_limiter.util import get_remote_address
->>>>>>> 6caa1183 (finalized security implementation.)
+from dotenv import load_dotenv
+import os
 
 db = SQLAlchemy()
 migrate = Migrate()
@@ -55,6 +52,10 @@ def create_app(config_name: str = "development") -> Flask:
     jwt.init_app(app)
     limiter.init_app(app)
     CORS(app, resources={r"/api/*": {"origins": "*"}})  # Tighten in production
+    
+    # Configure GeoAlchemy2 for SQLite compatibility
+    if 'sqlite' in app.config['SQLALCHEMY_DATABASE_URI']:
+        app.config['SPADEQA'] = False
 
     # ── Register blueprints (API routes) ────────────────────────────────────
     from app.api.v1.routes.incidents import incidents_bp
@@ -80,12 +81,18 @@ def create_app(config_name: str = "development") -> Flask:
     def health():
         return {"status": "ok", "service": "crime-watch-api"}, 200
 
-    # Global JSON error handler to ensure API returns JSON on uncaught exceptions
+    # Global JSON error handlers
+    from werkzeug.exceptions import HTTPException
+
+    @app.errorhandler(HTTPException)
+    def handle_http_exception(err):
+        return {"error": err.name, "details": err.description}, err.code
+
     @app.errorhandler(Exception)
     def handle_exception(err):
         # Let Flask log the exception as usual, but return a JSON payload
         app.logger.exception("Unhandled exception: %s", err)
-        return ({"error": "Internal server error", "details": str(err)}, 500)
+        return {"error": "Internal server error", "details": str(err)}, 500
 
     # ── CLI Commands ─────────────────────────────────────────────────────────
     @app.cli.command("create-admin")

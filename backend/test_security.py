@@ -41,27 +41,29 @@ def test_totp():
 def test_jwt_tokens():
     """Test JWT token issuance and verification"""
     print("Testing JWT tokens...")
-    user_id = 1
-    role = "officer"
+    app = create_app()
+    with app.app_context():
+        user_id = 1
+        role = "officer"
 
-    # Test access token
-    access_token = issue_access_token(user_id, role)
-    payload = decode_token(access_token)
-    assert payload["sub"] == str(user_id), "User ID mismatch"
-    assert payload["role"] == role, "Role mismatch"
-    assert payload["type"] == "access", "Token type mismatch"
+        # Test access token
+        access_token = issue_access_token(user_id, role)
+        payload = decode_token(access_token)
+        assert payload["sub"] == str(user_id), "User ID mismatch"
+        assert payload["role"] == role, "Role mismatch"
+        assert payload["type"] == "access", "Token type mismatch"
 
-    # Test refresh token
-    refresh_token, token_hash = issue_refresh_token(user_id)
-    refresh_payload = decode_token(refresh_token)
-    assert refresh_payload["type"] == "refresh", "Refresh token type mismatch"
-    assert refresh_payload["sub"] == str(user_id), "User ID mismatch in refresh token"
+        # Test refresh token
+        refresh_token, token_hash = issue_refresh_token(user_id)
+        refresh_payload = decode_token(refresh_token)
+        assert refresh_payload["type"] == "refresh", "Refresh token type mismatch"
+        assert refresh_payload["sub"] == str(user_id), "User ID mismatch in refresh token"
 
-    # Test token hash
-    computed_hash = refresh_token_hash(refresh_token)
-    assert computed_hash == token_hash, "Token hash mismatch"
+        # Test token hash
+        computed_hash = refresh_token_hash(refresh_token)
+        assert computed_hash == token_hash, "Token hash mismatch"
 
-    print("[PASS] JWT tokens work correctly")
+        print("[PASS] JWT tokens work correctly")
 
 def test_role_enforcement():
     """Test role-based access control"""

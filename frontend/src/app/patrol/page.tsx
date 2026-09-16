@@ -52,6 +52,7 @@ type CompareResponse = {
     fallback_used: boolean;
     load_imbalance: number;
   };
+  multi_vehicle?: boolean;
 };
 
 function PatrolInner() {
@@ -156,14 +157,20 @@ function PatrolInner() {
                 style={{ background: r.color }}
               />
               {r.name}
+              {r.vehicle_id !== undefined && (
+                <span className="text-xs text-slate-500">
+                  (Vehicle {r.vehicle_id + 1})
+                </span>
+              )}
             </div>
           ))}
         </div>
 
         {partitionMetadata && vehicleCount > 1 && (
           <div className="mb-4 rounded-lg border border-slate-800 bg-slate-900/50 p-3 text-sm">
-            <h3 className="mb-2 font-semibold text-slate-300">Partition Information</h3>
+            <h3 className="mb-2 font-semibold text-slate-300">Multi-Vehicle Partition Information</h3>
             <div className="space-y-1 text-slate-400">
+              <div>Vehicle count: {vehicleCount}</div>
               <div>Partition sizes: {partitionMetadata.partition_sizes.join(", ")}</div>
               <div>Load imbalance: {(partitionMetadata.load_imbalance * 100).toFixed(1)}%</div>
               {partitionMetadata.fallback_used && (
@@ -238,6 +245,21 @@ function PatrolInner() {
                 />
               </tbody>
             </table>
+          </div>
+        )}
+
+        {partitionMetadata && vehicleCount > 1 && (
+          <div className="mt-4 rounded-lg border border-slate-800 bg-slate-900/50 p-3 text-sm">
+            <h3 className="mb-2 font-semibold text-slate-300">Multi-Vehicle Summary</h3>
+            <div className="space-y-1 text-slate-400">
+              <div>Total routes generated: {routes.length}</div>
+              <div>Algorithms used: {[...new Set(routes.map(r => r.algorithm))].join(", ")}</div>
+              <div>Partition sizes: {partitionMetadata.partition_sizes.join(", ")}</div>
+              <div>Load imbalance: {(partitionMetadata.load_imbalance * 100).toFixed(1)}%</div>
+              {partitionMetadata.fallback_used && (
+                <div className="text-yellow-400">⚠️ Round-robin fallback used (geographic clustering failed)</div>
+              )}
+            </div>
           </div>
         )}
 
