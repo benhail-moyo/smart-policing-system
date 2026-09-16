@@ -113,30 +113,94 @@ class HotspotPartitioner:
         depot_locations: Optional[List[Tuple[float, float]]] = None
     ) -> PartitionResult:
         """
-        Partition using KMeans clustering with optional depot initialization.
+        Partition using appropriate method based on depot scenario.
         
-        For multi-depot scenarios, initializes cluster centers near depot locations
-        to bias clustering toward each vehicle's starting point.
+        For multi-depot scenarios: uses nearest-depot assignment (each hotspot assigned to closest depot).
+        For single-depot scenarios: uses KMeans clustering for geographic partitioning.
+        """
+        # Multi-depot: use nearest-depot assignment
+        if depot_locations is not None:
+            return self._nearest_depot_partition(hotspots, vehicle_count, depot_locations)
+        
+        # Single-depot: use KMeans clustering
+        return self._single_depot_kmeans_partition(hotspots, vehicle_count)
+    
+    def _nearest_depot_partition(
+        self,
+        hotspots: List[Tuple[float, float]],
+        vehicle_count: int,
+        depot_locations: List[Tuple[float, float]]
+    ) -> PartitionResult:
+        """
+        Partition using nearest-depot assignment for multi-depot scenarios.
+        
+        Each hotspot is assigned to the vehicle whose depot is closest in distance.
+        This is the correct approach for multi-depot routing where vehicles start
+        from different locations.
+        """
+        from math import radians, sin, cos, sqrt, atan2
+        
+        def haversine_distance(lat1, lng1, lat2, lng2):
+            """Calculate Haversine distance between two points in km."""
+            R = 6371  # Earth radius km
+            dlat = radians(lat2 - lat1)
+            dlng = radians(lng2 - lng1)
+            a = sin(dlat/2)**2 + cos(radians(lat1)) * cos(radians(lat2)) * sin(dlng/2)**2
+            return R * 2 * atan2(sqrt(a), sqrt(1 - a))
+        
+        # Build vehicle groups
+        vehicle_groups = [[] for _ in range(vehicle_count)]
+        vehicle_assignments = {}
+        
+        for hotspot_idx, hotspot in enumerate(hotspots):
+            # Find nearest depot
+            distances = []
+            for depot_id, depot in enumerate(depot_locations):
+                dist = haversine_distance(hotspot[0], hotspot[1], depot[0], depot[1])
+                distances.append((dist, depot_id))
+            
+            # Assign to closest depot
+            _, closest_depot_id = min(distances, key=lambda x: x[0])
+            vehicle_groups[closest_depot_id].append(hotspot)
+            vehicle_assignments[hotspot_idx] = closest_depot_id
+        
+        partition_sizes = [len(group) for group in vehicle_groups]
+        
+        logger.info(
+            f"Nearest-depot partitioning complete. Sizes: {partition_sizes}. "
+            f"Load imbalance: max={max(partition_sizes)}, min={min(partition_sizes)}"
+        )
+        
+        return PartitionResult(
+            vehicle_groups=vehicle_groups,
+            vehicle_assignments=vehicle_assignments,
+            fallback_used=False,
+            partition_sizes=partition_sizes
+        )
+    
+    def _single_depot_kmeans_partition(
+        self,
+        hotspots: List[Tuple[float, float]],
+        vehicle_count: int
+    ) -> PartitionResult:
+        """
+        Partition using KMeans clustering for single-depot scenarios.
+        
+        All vehicles start from the same location, so geographic clustering
+        is appropriate to partition the area among vehicles.
         """
         # Convert to numpy array
         hotspot_array = np.array(hotspots)
         
-        # Initialize cluster centers
-        if depot_locations is not None:
-            # Multi-depot: initialize near depot locations
-            init_centers = np.array(depot_locations)
-            logger.info(f"Multi-depot partitioning: initializing {vehicle_count} clusters near depot locations")
-        else:
-            # Single-depot: use KMeans++ initialization
-            init_centers = 'k-means++'
-            logger.info(f"Single-depot partitioning: using KMeans++ initialization")
+        # Use KMeans++ initialization for single-depot
+        logger.info(f"Single-depot partitioning: using KMeans++ initialization")
         
         # Run KMeans
         kmeans = KMeans(
             n_clusters=vehicle_count,
-            init=init_centers,
+            init='k-means++',
             random_state=self.random_state,
-            n_init=10 if depot_locations is None else 1,
+            n_init=10,
             max_iter=300
         )
         
