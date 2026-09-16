@@ -1,0 +1,71 @@
+{
+  "metadata": {
+    "hotspot_count": 20,
+    "algorithm": "KMeans Clustering",
+    "random_state": 42,
+    "geographic_area": "Harare, Zimbabwe"
+  },
+  "results": [
+    {
+      "vehicle_count": 1,
+      "partition_sizes": [
+        20
+      ],
+      "load_imbalance": 0.0,
+      "fallback_used": false,
+      "total_assigned": 20
+    },
+    {
+      "vehicle_count": 2,
+      "partition_sizes": [
+        12,
+        8
+      ],
+      "load_imbalance": 0.2,
+      "fallback_used": false,
+      "total_assigned": 20
+    },
+    {
+      "vehicle_count": 3,
+      "partition_sizes": [
+        5,
+        10,
+        5
+      ],
+      "load_imbalance": 0.25,
+      "fallback_used": false,
+      "total_assigned": 20
+    },
+    {
+      "vehicle_count": 5,
+      "partition_sizes": [
+        6,
+        4,
+        4,
+        4,
+        2
+      ],
+      "load_imbalance": 0.2,
+      "fallback_used": false,
+      "total_assigned": 20
+    },
+    {
+      "vehicle_count": 10,
+      "partition_sizes": [
+        5,
+        1,
+        3,
+        2,
+        2,
+        2,
+        2,
+        1,
+        1,
+        1
+      ],
+      "load_imbalance": 0.2,
+      "fallback_used": false,
+      "total_assigned": 20
+    }
+  ]
+}
