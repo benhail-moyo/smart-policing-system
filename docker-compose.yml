@@ -16,6 +16,8 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
+    networks:
+      - crime-watch-network
 
   backend:
     build:
@@ -38,6 +40,8 @@ services:
     depends_on:
       db:
         condition: service_healthy
+    networks:
+      - crime-watch-network
 
   frontend:
     build:

@@ -40,6 +40,7 @@ export type MapRoute = {
   };
   vehicle_id?: number;
   generation_id?: string;
+  algorithm?: string;
 };
 
 export type MapDeployment = {
