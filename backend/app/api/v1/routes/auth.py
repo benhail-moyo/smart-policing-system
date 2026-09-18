@@ -68,7 +68,7 @@ def register():
 
 
 @auth_bp.post("/login")
-@limiter.limit("5 per minute")
+@limiter.limit("10 per minute", error_message="Too many login attempts. Please try again later.")
 def login():
     """Login with rate limiting, account lockout, and MFA support."""
     try:

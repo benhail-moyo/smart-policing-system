@@ -15,15 +15,20 @@ class BaseConfig:
     GA_MUTATION_RATE = float(os.getenv("GA_MUTATION_RATE", "0.02"))
     GA_CROSSOVER_RATE = float(os.getenv("GA_CROSSOVER_RATE", "0.8"))
     # Flask-Limiter configuration
-    RATELIMIT_STORAGE_URL = os.getenv("REDIS_URL", "memory://")
+    RATELIMIT_STORAGE_URL = os.getenv("REDIS_URL", "redis://localhost:6379")
+    RATELIMIT_STORAGE_OPTIONS = {"connect_timeout": 5}
     RATELIMIT_DEFAULT = os.getenv("RATELIMIT_DEFAULT", "2000 per hour")
     RATELIMIT_HEADERS_ENABLED = True
+    RATELIMIT_SWALLOW_ERRORS = True  # Don't fail if rate limiter has issues
+    RATELIMIT_STRATEGY = "fixed-window"  # More predictable than moving-window
     # GeoAlchemy2 configuration for SQLite compatibility
     SPADEQA = False
 
 
 class DevelopmentConfig(BaseConfig):
     DEBUG = True
+    # Use memory storage in development to avoid Redis dependency
+    RATELIMIT_STORAGE_URL = "memory://"
 
 
 class TestingConfig(BaseConfig):
