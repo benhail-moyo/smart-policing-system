@@ -12,13 +12,28 @@ from flask_jwt_extended import JWTManager
 from flask_cors import CORS
 from flask_limiter import Limiter
 from flask_limiter.util import get_remote_address
+from flask_limiter.errors import RateLimitExceeded
 from dotenv import load_dotenv
 import os
+import logging
 
 db = SQLAlchemy()
 migrate = Migrate()
 jwt = JWTManager()
-limiter = Limiter(key_func=get_remote_address)
+
+# Configure limiter with robust error handling
+def get_identifier():
+    """Get request identifier with fallback for rate limiting."""
+    try:
+        return get_remote_address()
+    except Exception:
+        return "unknown"
+
+limiter = Limiter(
+    key_func=get_identifier,
+    strategy="fixed-window",
+    swallow_errors=True
+)
 
 
 def create_app(config_name: str = "development") -> Flask:
@@ -50,7 +65,13 @@ def create_app(config_name: str = "development") -> Flask:
 
     migrate.init_app(app, db)
     jwt.init_app(app)
-    limiter.init_app(app)
+    
+    # Initialize limiter with proper error handling
+    try:
+        limiter.init_app(app)
+    except Exception as e:
+        app.logger.warning(f"Rate limiter initialization failed: {e}. Rate limiting will be disabled.")
+    
     CORS(app, resources={r"/api/*": {"origins": "*"}})  # Tighten in production
     
     # Configure GeoAlchemy2 for SQLite compatibility
@@ -83,6 +104,16 @@ def create_app(config_name: str = "development") -> Flask:
 
     # Global JSON error handlers
     from werkzeug.exceptions import HTTPException
+
+    @app.errorhandler(RateLimitExceeded)
+    def handle_rate_limit_exceeded(err):
+        """Handle rate limit errors gracefully."""
+        app.logger.warning(f"Rate limit exceeded: {err.description}")
+        return {
+            "error": "Rate limit exceeded",
+            "details": str(err.description),
+            "retry_after": getattr(err, 'retry_after', None)
+        }, 429
 
     @app.errorhandler(HTTPException)
     def handle_http_exception(err):
