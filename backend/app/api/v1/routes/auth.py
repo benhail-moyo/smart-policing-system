@@ -16,6 +16,7 @@ from app.security.passwords import verify_password
 from app.security.totp import verify_totp, generate_totp_secret, get_provisioning_qr_base64
 from app.security.audit import write_audit_event
 from app.security.decorators import login_required, role_required
+from app.services.otp_service import otp_service
 
 # Refresh token TTL for database storage
 REFRESH_TOKEN_TTL = timedelta(days=7)
@@ -67,6 +68,71 @@ def register():
         return jsonify({"error": f"Registration failed: {str(e)}"}), 500
 
 
+@auth_bp.post("/verify-email")
+def verify_email():
+    """Verify email address during registration with OTP."""
+    try:
+        data = request.get_json(silent=True) or {}
+        email = (data.get("email") or "").strip().lower()
+        otp_code = data.get("otp_code") or ""
+
+        if not email or not otp_code:
+            return jsonify({"error": "Email and OTP code are required"}), 400
+
+        # Find user by email
+        user = db.session.query(User).filter_by(email=email).first()
+        if not user:
+            return jsonify({"error": "User not found"}), 404
+
+        # Verify OTP
+        is_valid, error_msg = otp_service.verify_otp(user.id, otp_code)
+        if not is_valid:
+            return jsonify({"error": error_msg or "Invalid OTP code"}), 401
+
+        # Mark email as verified (you could add an email_verified field to User model)
+        write_audit_event(user.id, "EMAIL_VERIFIED")
+
+        return jsonify({
+            "message": "Email verified successfully",
+            "user": user.to_dict()
+        }), 200
+
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({"error": f"Email verification failed: {str(e)}"}), 500
+
+
+@auth_bp.post("/send-verification-email")
+def send_verification_email():
+    """Send verification email to user."""
+    try:
+        data = request.get_json(silent=True) or {}
+        email = (data.get("email") or "").strip().lower()
+
+        if not email:
+            return jsonify({"error": "Email is required"}), 400
+
+        # Find user by email
+        user = db.session.query(User).filter_by(email=email).first()
+        if not user:
+            return jsonify({"error": "User not found"}), 404
+
+        # Generate and send OTP
+        success_msg, error_msg = otp_service.generate_otp(user.id)
+        if error_msg:
+            return jsonify({"error": f"Failed to send verification email: {error_msg}"}), 500
+
+        write_audit_event(user.id, "VERIFICATION_EMAIL_SENT")
+
+        return jsonify({
+            "message": success_msg,
+        }), 200
+
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({"error": f"Failed to send verification email: {str(e)}"}), 500
+
+
 @auth_bp.post("/login")
 @limiter.limit("10 per minute", error_message="Too many login attempts. Please try again later.")
 def login():
@@ -77,6 +143,7 @@ def login():
         identifier = data.get("identifier") or data.get("email")  # email OR officer_id
         password = data.get("password")
         totp_code = data.get("totp_code")  # optional unless role requires it
+        otp_code = data.get("otp_code")  # email OTP for officers/admins
 
         if not identifier or not password:
             return jsonify({"error": "Email/identifier and password are required"}), 400
@@ -93,8 +160,12 @@ def login():
         if user is None:
             return reject("LOGIN_FAILED")
 
-        if user.locked_until and user.locked_until > datetime.now(timezone.utc):
-            return reject("LOCKOUT")
+        if user.locked_until:
+            locked_until = user.locked_until
+            if locked_until.tzinfo is None:
+                locked_until = locked_until.replace(tzinfo=timezone.utc)
+            if locked_until > datetime.now(timezone.utc):
+                return reject("LOCKOUT")
 
         if not verify_password(user.password_hash, password):
             user.failed_login_count += 1
@@ -103,43 +174,83 @@ def login():
             db.session.commit()
             return reject("LOGIN_FAILED")
 
+        # For officers and admins, require email OTP
+        if user.role in ['officer', 'admin']:
+            # If OTP code provided, verify it
+            if otp_code:
+                is_valid, error_msg = otp_service.verify_otp(user.id, otp_code)
+                if not is_valid:
+                    write_audit_event(user.id, "OTP_FAILED")
+                    return jsonify({"error": error_msg or "Invalid OTP code"}), 401
+                
+                # OTP verified, proceed with login
+                return _complete_login(user)
+            else:
+                # Generate and send OTP
+                success_msg, error_msg = otp_service.generate_otp(user.id)
+                if error_msg:
+                    # If email service fails, fall back to TOTP if enabled
+                    if user.totp_enabled:
+                        if not totp_code or not verify_totp(user.totp_secret, totp_code):
+                            return reject("MFA_FAILED")
+                        return _complete_login(user)
+                    else:
+                        return jsonify({"error": f"Failed to send OTP: {error_msg}"}), 500
+                
+                # Return OTP required response
+                write_audit_event(user.id, "OTP_SENT")
+                return jsonify({
+                    "message": success_msg,
+                    "requires_otp": True,
+                    "user_id": user.id,
+                    "role": user.role
+                }), 200
+
+        # For community users or TOTP fallback
         # MFA check — only enforce when the user has actually enrolled TOTP
         if user.totp_enabled:
             if not totp_code or not verify_totp(user.totp_secret, totp_code):
                 return reject("MFA_FAILED")
 
-        # Successful login - reset lockout counters
-        user.failed_login_count = 0
-        user.locked_until = None
-        db.session.commit()
-
-        # Use Flask-JWT-Extended for token creation
-        access_token = create_access_token(
-            identity=str(user.id),
-            additional_claims={"role": user.role, "type": "access"}
-        )
-        refresh_token = create_refresh_token(
-            identity=str(user.id),
-            additional_claims={"type": "refresh"}
-        )
-        refresh_hash = refresh_token_hash(refresh_token)
-
-        db.session.add(RefreshToken(
-            user_id=user.id, token_hash=refresh_hash,
-            expires_at=datetime.now(timezone.utc) + REFRESH_TOKEN_TTL
-        ))
-        db.session.commit()
-
-        write_audit_event(user.id, "LOGIN_SUCCESS")
-        return jsonify({
-            "access_token": access_token,
-            "refresh_token": refresh_token,
-            "role": user.role,
-            "user": user.to_dict()
-        })
+        # Complete login for non-officer/admin users or TOTP users
+        return _complete_login(user)
+        
     except Exception as e:
         db.session.rollback()
         return jsonify({"error": f"Login failed: {str(e)}"}), 500
+
+
+def _complete_login(user: User):
+    """Complete the login process and issue tokens."""
+    # Successful login - reset lockout counters
+    user.failed_login_count = 0
+    user.locked_until = None
+    db.session.commit()
+
+    # Use Flask-JWT-Extended for token creation
+    access_token = create_access_token(
+        identity=str(user.id),
+        additional_claims={"role": user.role, "type": "access"}
+    )
+    refresh_token = create_refresh_token(
+        identity=str(user.id),
+        additional_claims={"type": "refresh"}
+    )
+    refresh_hash = refresh_token_hash(refresh_token)
+
+    db.session.add(RefreshToken(
+        user_id=user.id, token_hash=refresh_hash,
+        expires_at=datetime.now(timezone.utc) + REFRESH_TOKEN_TTL
+    ))
+    db.session.commit()
+
+    write_audit_event(user.id, "LOGIN_SUCCESS")
+    return jsonify({
+        "access_token": access_token,
+        "refresh_token": refresh_token,
+        "role": user.role,
+        "user": user.to_dict()
+    })
 
 
 @auth_bp.post("/refresh")

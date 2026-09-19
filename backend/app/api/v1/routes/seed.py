@@ -102,14 +102,14 @@ def _build_location(lat, lng):
 @jwt_required(optional=True)
 def seed_database():
     # 1. Ensure default users exist
-    admin_user = db.session.query(User).filter_by(email="admin@harare.gov.zw").first()
+    admin_user = db.session.query(User).filter_by(email="benhailmoyo7@gmail.com").first()
     if not admin_user:
         admin_user = User(
-            name="Command Admin",
-            email="admin@harare.gov.zw",
+            name="Benhail Moyo",
+            email="benhailmoyo7@gmail.com",
             role="admin",
         )
-        admin_user.set_password("password123")
+        admin_user.set_password("Smart-policing1")
         db.session.add(admin_user)
 
     officer_user = db.session.query(User).filter_by(email="officer@harare.gov.zw").first()
@@ -176,7 +176,7 @@ def seed_database():
         "hotspots": analysis["hotspots_generated"],
         "demoAccounts": [
             { "role": "officer", "email": "officer@harare.gov.zw", "password": "password123" },
-            { "role": "admin", "email": "admin@harare.gov.zw", "password": "password123" },
+            { "role": "admin", "email": "benhailmoyo7@gmail.com", "password": "Smart-policing1" },
             { "role": "community", "email": "community@harare.gov.zw", "password": "password123" },
         ],
     }), 200
