@@ -3,13 +3,14 @@ export const dynamic = "force-dynamic";
 
 export async function GET(
   request: Request,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
+  const { id } = await params;
   const header = request.headers.get("authorization");
   const token = header?.startsWith("Bearer ") ? header.slice(7) : header;
   
   try {
-    const response = await fetch(`${backendApiUrl}/incidents/${params.id}`, {
+    const response = await fetch(`${backendApiUrl}/incidents/${id}`, {
       method: 'GET',
       headers: { 
         'Content-Type': 'application/json',

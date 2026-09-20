@@ -54,7 +54,7 @@ function HotspotTrendsInner() {
     return true;
   });
 
-  const categories = Array.from(new Set(hotspots.map(h => h.dominant_category).filter(Boolean)));
+  const categories = Array.from(new Set(hotspots.map(h => h.dominant_category).filter((c): c is string => Boolean(c))));
 
   const getStatusColor = (status: string) => {
     switch (status) {
