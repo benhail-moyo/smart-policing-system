@@ -4,9 +4,14 @@ export const dynamic = "force-dynamic";
 
 export async function POST(request: Request) {
   const body = await request.json().catch(() => null);
-  if (!body?.email || !body?.password) {
+  const force_number = body?.force_number ? String(body.force_number).trim().toUpperCase() : null;
+  const email = body?.email ? String(body.email).trim().toLowerCase() : null;
+  const identifier = body?.identifier ? String(body.identifier).trim() : null;
+  const password = body?.password ? String(body.password) : null;
+
+  if ((!force_number && !email && !identifier) || !password) {
     return Response.json(
-      { error: "Email and password are required" },
+      { error: "Force Number or Email and Password are required" },
       { status: 400 }
     );
   }
@@ -16,10 +21,12 @@ export async function POST(request: Request) {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        // Backend expects 'identifier' (accepts email OR officer_id)
-        identifier: String(body.email).toLowerCase(),
-        password: String(body.password),
-        ...(body.totp_code && { totp_code: String(body.totp_code) }),
+        ...(force_number && { force_number }),
+        ...(email && { email }),
+        ...(identifier && { identifier }),
+        password,
+        ...(body.totp_code && { totp_code: String(body.totp_code).trim() }),
+        ...(body.otp_code && { otp_code: String(body.otp_code).trim() }),
       }),
     });
 
@@ -29,8 +36,7 @@ export async function POST(request: Request) {
       return Response.json(data, { status: response.status });
     }
 
-    // Normalise response: expose both 'token' and 'access_token' so the
-    // frontend can use either key without caring which one the backend sends.
+    // Normalise response: expose both 'token' and 'access_token'
     return Response.json({ ...data, token: data.access_token ?? data.token });
   } catch (error) {
     return Response.json(
@@ -39,3 +45,4 @@ export async function POST(request: Request) {
     );
   }
 }
+

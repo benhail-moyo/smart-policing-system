@@ -19,6 +19,7 @@ export async function POST(request: Request) {
         email: String(body.email).toLowerCase(),
         password: String(body.password),
         role: body.role === "officer" || body.role === "admin" ? body.role : "community",
+        ...(body.force_number && { force_number: String(body.force_number).trim().toUpperCase() }),
       }),
     });
 
