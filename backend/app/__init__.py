@@ -21,7 +21,32 @@ db = SQLAlchemy()
 migrate = Migrate()
 jwt = JWTManager()
 
-# Configure limiter with robust error handling
+# ── Rate Limiter Stub / Configuration ──────────────────────────────────────────
+# Stubbed by default to avoid unnecessary rate limit blocks (e.g. 429 errors).
+# Can be toggled via RATELIMIT_ENABLED=true in the environment.
+
+class LimiterStub:
+    """No-op limiter stub that acts as a passthrough for decorators."""
+    def __init__(self, *args, **kwargs):
+        self.enabled = False
+
+    def init_app(self, app):
+        pass
+
+    def limit(self, *args, **kwargs):
+        def decorator(f):
+            return f
+        return decorator
+
+    def shared_limit(self, *args, **kwargs):
+        def decorator(f):
+            return f
+        return decorator
+
+    def exempt(self, f):
+        return f
+
+
 def get_identifier():
     """Get request identifier with fallback for rate limiting."""
     try:
@@ -29,11 +54,17 @@ def get_identifier():
     except Exception:
         return "unknown"
 
-limiter = Limiter(
-    key_func=get_identifier,
-    strategy="fixed-window",
-    swallow_errors=True
-)
+
+_rate_limit_enabled = os.getenv("RATELIMIT_ENABLED", "false").lower() in ("true", "1")
+
+if _rate_limit_enabled:
+    limiter = Limiter(
+        key_func=get_identifier,
+        strategy="fixed-window",
+        swallow_errors=True
+    )
+else:
+    limiter = LimiterStub()
 
 
 def create_app(config_name: str = "development") -> Flask:
@@ -46,9 +77,12 @@ def create_app(config_name: str = "development") -> Flask:
     Returns:
         Configured Flask application instance.
     """
-    # Load environment variables from .env file (in project root)
+    # Load environment variables from .env file (search root, backend, and cwd)
     project_root = os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
-    load_dotenv(os.path.join(project_root, '.env'))
+    backend_root = os.path.dirname(os.path.dirname(__file__))
+    load_dotenv(os.path.join(project_root, '.env'), override=True)
+    load_dotenv(os.path.join(backend_root, '.env'), override=True)
+    load_dotenv(override=True)
     
     app = Flask(__name__)
 
@@ -131,16 +165,26 @@ def create_app(config_name: str = "development") -> Flask:
         """Create the initial admin account via CLI."""
         from app.models.models import User
         from app.security.totp import generate_totp_secret, get_provisioning_qr_base64
+        from app.security.passwords import validate_password_strength, validate_force_number
 
         print("=== Create Initial Admin Account ===")
-        email = input("Admin email: ").strip()
+        force_number = input("Admin Force Number (e.g. 000101A): ").strip().upper()
+        fn_valid, fn_err = validate_force_number(force_number)
+        if not fn_valid:
+            print(f"Error: {fn_err}")
+            return
+
+        email = input("Admin Email (for 2FA OTP codes): ").strip().lower()
         if not email:
             print("Email is required")
             return
 
+        name = input("Admin Full Name: ").strip() or "System Administrator"
+
         password = input("Password: ")
-        if not password or len(password) < 8:
-            print("Password must be at least 8 characters")
+        pw_valid, pw_errs = validate_password_strength(password, {"name": name, "email": email, "force_number": force_number})
+        if not pw_valid:
+            print(f"Password Error: {pw_errs[0]}")
             return
 
         confirm_password = input("Confirm password: ")
@@ -149,39 +193,48 @@ def create_app(config_name: str = "development") -> Flask:
             return
 
         # Check if admin already exists
-        existing = db.session.query(User).filter_by(email=email).first()
-        if existing:
+        existing_email = db.session.query(User).filter_by(email=email).first()
+        if existing_email:
             print(f"Admin with email {email} already exists")
             return
 
-        # Create admin with mandatory MFA
+        existing_fn = db.session.query(User).filter(
+            (User.force_number == force_number) | (User.officer_id == force_number)
+        ).first()
+        if existing_fn:
+            print(f"Admin with Force Number {force_number} already exists")
+            return
+
+        # Create admin
         admin = User(
             email=email,
+            force_number=force_number,
+            officer_id=force_number,
             role="admin",
-            name="System Administrator"
+            name=name
         )
         admin.set_password(password)
 
         # Generate TOTP secret for mandatory MFA
         totp_secret = generate_totp_secret()
         admin.totp_secret = totp_secret
-        admin.totp_enabled = True  # Admins must have MFA enabled
+        admin.totp_enabled = True
 
         db.session.add(admin)
         db.session.commit()
 
         # Generate QR code for easy setup
-        qr_base64 = get_provisioning_qr_base64(totp_secret, email, "Crime-Watch")
+        qr_base64 = get_provisioning_qr_base64(totp_secret, force_number, "Crime-Watch")
 
         print(f"\n✓ Admin account created successfully!")
+        print(f"  Force Number: {force_number}")
         print(f"  Email: {email}")
         print(f"  Role: admin")
-        print(f"  MFA: Enabled (mandatory for admins)")
+        print(f"  MFA: Enabled")
         print(f"\nIMPORTANT: Scan this QR code with your authenticator app:")
         print(f"  (QR code data: {qr_base64[:50]}...)")
         print(f"\nOr manually enter this TOTP secret:")
         print(f"  {totp_secret}")
-        print(f"\nYou will need to complete MFA setup before logging in.")
 
     return app
 

@@ -14,7 +14,8 @@ class BaseConfig:
     GA_GENERATIONS = int(os.getenv("GA_GENERATIONS", "200"))
     GA_MUTATION_RATE = float(os.getenv("GA_MUTATION_RATE", "0.02"))
     GA_CROSSOVER_RATE = float(os.getenv("GA_CROSSOVER_RATE", "0.8"))
-    # Flask-Limiter configuration
+    # Flask-Limiter configuration (stubbed/disabled by default to prevent false-positive rate limit flags)
+    RATELIMIT_ENABLED = os.getenv("RATELIMIT_ENABLED", "false").lower() in ("true", "1")
     RATELIMIT_STORAGE_URL = os.getenv("REDIS_URL", "redis://localhost:6379")
     RATELIMIT_STORAGE_OPTIONS = {"connect_timeout": 5}
     RATELIMIT_DEFAULT = os.getenv("RATELIMIT_DEFAULT", "2000 per hour")
