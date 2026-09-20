@@ -15,10 +15,11 @@ class User(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     role = db.Column(db.String(20), nullable=False)  # 'community' | 'officer' | 'admin'
 
-    # Identifiers — exactly one of these is populated per role convention,
-    # but store both columns for flexibility.
+    # Identifiers — community uses email; police officers and admins use force_number (123456X format)
+    # email is also stored for officers/admins to receive 2FA OTP codes.
     email = db.Column(db.String(255), nullable=True, index=True)
-    officer_id = db.Column(db.String(50), nullable=True, index=True)
+    force_number = db.Column(db.String(50), nullable=True, unique=True, index=True)
+    officer_id = db.Column(db.String(50), nullable=True, index=True)  # legacy alias for foreign key compatibility
     name = db.Column(db.String(120), nullable=True)
 
     password_hash = db.Column(db.String(255), nullable=False)
@@ -50,16 +51,45 @@ class User(db.Model):
         return verify_password(self.password_hash, password)
 
     def to_dict(self):
+        fn = self.force_number or self.officer_id
         return {
             "id": self.id,
-            "name": self.name or (self.email.split("@")[0] if self.email else "Officer"),
+            "name": self.name or (self.email.split("@")[0] if self.email else (fn or "User")),
             "email": self.email,
-            "officer_id": self.officer_id,
+            "force_number": fn,
+            "officer_id": fn,
             "role": self.role,
             "is_active": self.is_active,
             "totp_enabled": self.totp_enabled,
             "created_at": self.created_at.isoformat() if self.created_at else None,
         }
+
+
+class EmailOTP(db.Model):
+    """Email OTP codes for two-factor authentication."""
+    __tablename__ = "email_otp"
+    
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey("user.id"), nullable=False)
+    code = db.Column(db.String(6), nullable=False)  # 6-digit code
+    expires_at = db.Column(db.DateTime, nullable=False)
+    used = db.Column(db.Boolean, default=False, nullable=False)
+    created_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc))
+    
+    user = db.relationship("User", backref="email_otps")
+    
+    def is_valid(self) -> bool:
+        """Check if OTP is valid (not expired and not used)."""
+        if self.used or not self.expires_at:
+            return False
+        expires = self.expires_at
+        if expires.tzinfo is None:
+            expires = expires.replace(tzinfo=timezone.utc)
+        return expires > datetime.now(timezone.utc)
+    
+    def mark_as_used(self):
+        """Mark OTP as used."""
+        self.used = True
 
 
 class Incident(db.Model):
@@ -350,7 +380,7 @@ class AuditLog(db.Model):
 
     __table_args__ = (
         db.CheckConstraint(
-            "event_type IN ('LOGIN_SUCCESS','LOGIN_FAILED','MFA_FAILED','LOCKOUT','ROLE_CHANGE','TOKEN_REFRESH','LOGOUT','ROUTE_OVERRIDE','ENTITY_UPDATE')",
+            "event_type IN ('LOGIN_SUCCESS','LOGIN_FAILED','MFA_FAILED','LOCKOUT','ROLE_CHANGE','TOKEN_REFRESH','LOGOUT','ROUTE_OVERRIDE','ENTITY_UPDATE','OTP_SENT','OTP_FAILED','EMAIL_VERIFIED','VERIFICATION_EMAIL_SENT')",
             name="valid_event_type"
         ),
     )
