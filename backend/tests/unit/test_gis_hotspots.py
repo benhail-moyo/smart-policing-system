@@ -1,7 +1,6 @@
 from app import create_app, db
 from app.services.gis.hotspot_analysis import hotspot_service
 from app.models.models import Hotspot
-from geoalchemy2.shape import from_shape
 from shapely.geometry import Point
 from datetime import datetime, timezone
 import uuid
@@ -58,7 +57,9 @@ def test_dormant_hotspot_reactivation():
         # Create a dormant hotspot
         dormant_hotspot = Hotspot(
             hotspot_id=uuid.uuid4(),
-            centroid=from_shape(Point(31.05, -17.83), srid=4326),
+            lat=-17.83,
+            lng=31.05,
+            centroid="POINT(31.05 -17.83)",
             status='dormant',
             consecutive_misses=3,
             incident_count=5,
@@ -100,7 +101,9 @@ def test_status_lifecycle_transitions():
         # Create emerging hotspot
         hotspot = Hotspot(
             hotspot_id=uuid.uuid4(),
-            centroid=from_shape(Point(31.05, -17.83), srid=4326),
+            lat=-17.83,
+            lng=31.05,
+            centroid="POINT(31.05 -17.83)",
             status='emerging',
             consecutive_misses=0,
             incident_count=5,
@@ -147,7 +150,9 @@ def test_no_hotspot_deletion_regression():
         
         hotspot1 = Hotspot(
             hotspot_id=hotspot1_id,
-            centroid=from_shape(Point(31.05, -17.83), srid=4326),
+            lat=-17.83,
+            lng=31.05,
+            centroid="POINT(31.05 -17.83)",
             status='active',
             consecutive_misses=0,
             incident_count=5,
@@ -160,7 +165,9 @@ def test_no_hotspot_deletion_regression():
         
         hotspot2 = Hotspot(
             hotspot_id=hotspot2_id,
-            centroid=from_shape(Point(31.06, -17.84), srid=4326),
+            lat=-17.84,
+            lng=31.06,
+            centroid="POINT(31.06 -17.84)",
             status='active',
             consecutive_misses=0,
             incident_count=3,

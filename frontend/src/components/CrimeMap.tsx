@@ -38,6 +38,9 @@ export type MapRoute = {
     type: string;
     coordinates: [number, number][];
   };
+  vehicle_id?: number;
+  generation_id?: string;
+  algorithm?: string;
 };
 
 export type MapDeployment = {

@@ -1,45 +1,95 @@
 from datetime import datetime, timezone
 import uuid
 
-from werkzeug.security import generate_password_hash, check_password_hash
-from geoalchemy2 import Geometry
-from geoalchemy2.shape import to_shape
-from sqlalchemy.dialects.postgresql import UUID
-
 from app import db
+from app.security.passwords import hash_password, verify_password
+
+# Use String for UUID compatibility with both SQLite and PostgreSQL
+# PostgreSQL will handle UUID conversions through migrations
+UUID_TYPE = db.String(36)
 
 
 class User(db.Model):
     __tablename__ = "user"
 
     id = db.Column(db.Integer, primary_key=True)
+    role = db.Column(db.String(20), nullable=False)  # 'community' | 'officer' | 'admin'
+
+    # Identifiers — community uses email; police officers and admins use force_number (123456X format)
+    # email is also stored for officers/admins to receive 2FA OTP codes.
+    email = db.Column(db.String(255), nullable=True, index=True)
+    force_number = db.Column(db.String(50), nullable=True, unique=True, index=True)
+    officer_id = db.Column(db.String(50), nullable=True, index=True)  # legacy alias for foreign key compatibility
     name = db.Column(db.String(120), nullable=True)
-    email = db.Column(db.String(255), unique=True, nullable=False)
+
     password_hash = db.Column(db.String(255), nullable=False)
-    role = db.Column(db.String(50), nullable=False, default="community")
     is_active = db.Column(db.Boolean, nullable=False, default=True)
+
+    # MFA
+    totp_secret = db.Column(db.String(64), nullable=True)       # base32 secret, set on enrolment
+    totp_enabled = db.Column(db.Boolean, default=False, nullable=False)
+
+    # Account lockout state (belt-and-suspenders alongside Flask-Limiter)
+    failed_login_count = db.Column(db.Integer, default=0, nullable=False)
+    locked_until = db.Column(db.DateTime, nullable=True)
+
     created_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc))
 
     # Relationship back to incidents they reported
     incidents = db.relationship("Incident", back_populates="reported_by", lazy="dynamic", foreign_keys="Incident.reported_by_id")
 
+    __table_args__ = (
+        db.CheckConstraint("role IN ('community','officer','admin')", name="valid_role"),
+    )
+
     def set_password(self, password: str):
-        """Hash and store the user's password."""
-        self.password_hash = generate_password_hash(password)
+        """Hash and store the user's password using Argon2id."""
+        self.password_hash = hash_password(password)
 
     def check_password(self, password: str) -> bool:
-        """Verify a plaintext password against the stored hash."""
-        return check_password_hash(self.password_hash, password)
+        """Verify a plaintext password against the stored Argon2id hash."""
+        return verify_password(self.password_hash, password)
 
     def to_dict(self):
+        fn = self.force_number or self.officer_id
         return {
             "id": self.id,
-            "name": self.name or self.email.split("@")[0],
+            "name": self.name or (self.email.split("@")[0] if self.email else (fn or "User")),
             "email": self.email,
+            "force_number": fn,
+            "officer_id": fn,
             "role": self.role,
             "is_active": self.is_active,
+            "totp_enabled": self.totp_enabled,
             "created_at": self.created_at.isoformat() if self.created_at else None,
         }
+
+
+class EmailOTP(db.Model):
+    """Email OTP codes for two-factor authentication."""
+    __tablename__ = "email_otp"
+    
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey("user.id"), nullable=False)
+    code = db.Column(db.String(6), nullable=False)  # 6-digit code
+    expires_at = db.Column(db.DateTime, nullable=False)
+    used = db.Column(db.Boolean, default=False, nullable=False)
+    created_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc))
+    
+    user = db.relationship("User", backref="email_otps")
+    
+    def is_valid(self) -> bool:
+        """Check if OTP is valid (not expired and not used)."""
+        if self.used or not self.expires_at:
+            return False
+        expires = self.expires_at
+        if expires.tzinfo is None:
+            expires = expires.replace(tzinfo=timezone.utc)
+        return expires > datetime.now(timezone.utc)
+    
+    def mark_as_used(self):
+        """Mark OTP as used."""
+        self.used = True
 
 
 class Incident(db.Model):
@@ -144,20 +194,26 @@ class Incident(db.Model):
 class Hotspot(db.Model):
     __tablename__ = "hotspot"
 
-    hotspot_id = db.Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    centroid = db.Column(Geometry('POINT', srid=4326), nullable=False)
-    convex_hull = db.Column(Geometry('POLYGON', srid=4326))
+    hotspot_id = db.Column(UUID_TYPE, primary_key=True, default=lambda: str(uuid.uuid4()))
+    # Use lat/lng columns for SQLite compatibility
+    lat = db.Column(db.Float, nullable=False)
+    lng = db.Column(db.Float, nullable=False)
+    # Geometry columns only for PostGIS (conditional)
+    centroid = db.Column(db.Text, nullable=True)  # Store as WKT string for SQLite compatibility
+    convex_hull = db.Column(db.Text, nullable=True)  # Store as WKT string for SQLite compatibility
     dominant_category = db.Column(db.String(120))
     incident_count = db.Column(db.Integer, nullable=False, default=0)
     risk_score = db.Column(db.Float, nullable=False, default=0.0)
     status = db.Column(db.String(20), nullable=False, default='emerging')  # 'emerging', 'active', 'cooling', 'dormant'
     consecutive_misses = db.Column(db.Integer, nullable=False, default=0)
-    first_detected_at = db.Column(db.DateTime, nullable=False)
-    last_matched_at = db.Column(db.DateTime, nullable=False)
-    updated_at = db.Column(db.DateTime, nullable=False)
+    first_detected_at = db.Column(db.DateTime, nullable=False, default=lambda: datetime.now(timezone.utc))
+    last_matched_at = db.Column(db.DateTime, nullable=False, default=lambda: datetime.now(timezone.utc))
+    updated_at = db.Column(db.DateTime, nullable=False, default=lambda: datetime.now(timezone.utc))
 
     def to_dict(self):
-        geom = to_shape(self.centroid)
+        # Use lat/lng columns directly for SQLite compatibility
+        lat = self.lat if self.lat is not None else -17.8292
+        lng = self.lng if self.lng is not None else 31.0522
         
         score = float(self.risk_score or 0.0)
         level = "high" if score >= 0.6 else "medium" if score >= 0.3 else "low"
@@ -165,9 +221,9 @@ class Hotspot(db.Model):
 
         return {
             "hotspot_id": str(self.hotspot_id),
-            "centroid": {"lat": geom.y, "lng": geom.x},
-            "lat": geom.y,
-            "lng": geom.x,
+            "centroid": {"lat": lat, "lng": lng},
+            "lat": lat,
+            "lng": lng,
             "count": self.incident_count,
             "weight": weight,
             "radius": min(900, 300 + self.incident_count * 70),
@@ -188,9 +244,13 @@ class HotspotHistory(db.Model):
     __tablename__ = "hotspot_history"
 
     history_id = db.Column(db.Integer, primary_key=True)
-    hotspot_id = db.Column(UUID(as_uuid=True), db.ForeignKey("hotspot.hotspot_id"), nullable=False)
-    run_timestamp = db.Column(db.DateTime, nullable=False)
-    centroid = db.Column(Geometry('POINT', srid=4326), nullable=False)
+    hotspot_id = db.Column(UUID_TYPE, db.ForeignKey("hotspot.hotspot_id"), nullable=False)
+    run_timestamp = db.Column(db.DateTime, nullable=False, default=lambda: datetime.now(timezone.utc))
+    # Use lat/lng columns for SQLite compatibility
+    lat = db.Column(db.Float, nullable=False)
+    lng = db.Column(db.Float, nullable=False)
+    # Geometry column only for PostGIS (conditional)
+    centroid = db.Column(db.Text, nullable=True)  # Store as WKT string for SQLite compatibility
     incident_count = db.Column(db.Integer, nullable=False)
     risk_score = db.Column(db.Float, nullable=False)
     volume_score = db.Column(db.Float, nullable=False)
@@ -200,13 +260,21 @@ class HotspotHistory(db.Model):
     dominant_category = db.Column(db.String(120))
 
     def to_dict(self):
-        geom = to_shape(self.centroid)
+        # Parse centroid from WKT string or use lat/lng columns
+        if self.centroid and isinstance(self.centroid, str):
+            from shapely.wkt import loads as wkt_loads
+            geom = wkt_loads(self.centroid)
+            centroid_lat = geom.y
+            centroid_lng = geom.x
+        else:
+            centroid_lat = self.lat
+            centroid_lng = self.lng
         
         return {
             "history_id": self.history_id,
             "hotspot_id": str(self.hotspot_id),
             "run_timestamp": self.run_timestamp.isoformat() if self.run_timestamp else None,
-            "centroid": {"lat": geom.y, "lng": geom.x},
+            "centroid": {"lat": centroid_lat, "lng": centroid_lng},
             "incident_count": self.incident_count,
             "risk_score": self.risk_score,
             "volume_score": self.volume_score,
@@ -230,6 +298,9 @@ class PatrolRoute(db.Model):
     hotspots_covered = db.Column(db.Integer, nullable=False)
     hotspot_ids = db.Column(db.JSON, nullable=False, default=list)
     computation_time_ms = db.Column(db.Float, nullable=False)
+    # Multi-vehicle support
+    vehicle_id = db.Column(db.Integer, nullable=True)           # Vehicle identifier (0-indexed)
+    generation_id = db.Column(db.String(36), nullable=True)     # UUID grouping routes from same request
     created_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc))
 
     def to_dict(self):
@@ -243,9 +314,15 @@ class PatrolRoute(db.Model):
         algo_name = self.algorithm.title() if self.algorithm else "Dijkstra"
         color = "#2563eb" if self.algorithm == "dijkstra" else "#f97316"
 
+        # Multi-vehicle display name
+        if self.vehicle_id is not None:
+            name = f"Vehicle {self.vehicle_id + 1} — {algo_name} Optimized"
+        else:
+            name = f"Route {self.id} — {algo_name} Optimized"
+
         return {
             "id": f"route-{self.id}",
-            "name": f"Route {self.id} — {algo_name} Optimized",
+            "name": name,
             "color": color,
             "algorithm": self.algorithm,
             "waypoints": waypoints,
@@ -256,7 +333,73 @@ class PatrolRoute(db.Model):
             "hotspots_covered": self.hotspots_covered,
             "hotspot_ids": self.hotspot_ids,
             "computation_time_ms": self.computation_time_ms,
+            "vehicle_id": self.vehicle_id,
+            "generation_id": self.generation_id,
             "created_at": self.created_at.isoformat() if self.created_at else None,
+        }
+
+
+class AuditLog(db.Model):
+    """
+    Comprehensive audit log for security events, entity tracking, and multi-vehicle route overrides.
+    Supports both security event logging and entity override tracking with vehicle identification.
+    """
+    __tablename__ = "audit_log"
+
+    id = db.Column(db.Integer, primary_key=True)
+    
+    # Security event fields
+    user_id = db.Column(db.Integer, db.ForeignKey("user.id"), nullable=True)  # nullable for system events
+    event_type = db.Column(db.String(50), nullable=False)  # LOGIN_SUCCESS, LOGIN_FAILED, MFA_FAILED, LOCKOUT, ROLE_CHANGE, TOKEN_REFRESH, LOGOUT, ROUTE_OVERRIDE, etc.
+    event_metadata = db.Column(db.JSON, nullable=True)  # Additional event-specific data
+    ip_address = db.Column(db.String(45), nullable=True)  # IPv4 or IPv6
+    user_agent = db.Column(db.String(255), nullable=True)
+    
+    # Entity tracking fields for overrides
+    entity_type = db.Column(db.String(50), nullable=True)     # 'incident', 'route', 'hotspot', etc.
+    entity_id = db.Column(db.String(100), nullable=True)      # ID of the affected entity
+    action = db.Column(db.String(50), nullable=True)          # 'created', 'updated', 'overridden', 'deleted'
+    
+    # Original values before change
+    previous_state = db.Column(db.JSON, nullable=True)
+    
+    # New values after change
+    new_state = db.Column(db.JSON, nullable=True)
+    
+    # Override-specific fields
+    override_reason = db.Column(db.Text, nullable=True)
+    override_by_id = db.Column(db.Integer, db.ForeignKey("user.id"), nullable=True)
+    override_by = db.relationship("User", foreign_keys=[override_by_id])
+    
+    # Multi-vehicle support for route overrides
+    vehicle_id = db.Column(db.Integer, nullable=True)          # Vehicle identifier for route overrides
+    generation_id = db.Column(db.String(36), nullable=True)    # Generation ID for route overrides
+    
+    # Metadata
+    created_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc), nullable=False)
+
+    __table_args__ = (
+        db.CheckConstraint(
+            "event_type IN ('LOGIN_SUCCESS','LOGIN_FAILED','MFA_FAILED','LOCKOUT','ROLE_CHANGE','TOKEN_REFRESH','LOGOUT','ROUTE_OVERRIDE','ENTITY_UPDATE','OTP_SENT','OTP_FAILED','EMAIL_VERIFIED','VERIFICATION_EMAIL_SENT')",
+            name="valid_event_type"
+        ),
+    )
+    
+    def to_dict(self):
+        return {
+            "id": self.id,
+            "entity_type": self.entity_type,
+            "entity_id": self.entity_id,
+            "action": self.action,
+            "previous_state": self.previous_state,
+            "new_state": self.new_state,
+            "override_reason": self.override_reason,
+            "override_by": self.override_by.name if self.override_by else None,
+            "override_by_id": self.override_by_id,
+            "vehicle_id": self.vehicle_id,
+            "generation_id": self.generation_id,
+            "created_at": self.created_at.isoformat() if self.created_at else None,
+            "ip_address": self.ip_address,
         }
 
 
@@ -318,3 +461,14 @@ class OfficerDailyLog(db.Model):
                 "date": self.log_date, "shift": self.shift, "areaName": self.area_name,
                 "summary": self.summary, "status": self.status,
                 "createdAt": self.created_at.isoformat() if self.created_at else None}
+
+
+class RefreshToken(db.Model):
+    __tablename__ = "refresh_tokens"
+
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey("user.id"), nullable=False)
+    token_hash = db.Column(db.String(128), nullable=False)  # store a hash, never the raw token
+    issued_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc))
+    expires_at = db.Column(db.DateTime, nullable=False)
+    revoked = db.Column(db.Boolean, default=False, nullable=False)

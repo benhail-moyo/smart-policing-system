@@ -6,9 +6,9 @@ from datetime import datetime, timedelta, timezone
 from typing import Iterable, List, Sequence, Tuple
 
 import numpy as np
-from geoalchemy2.shape import from_shape, to_shape
 from scipy.stats import gaussian_kde
 from shapely.geometry import MultiPoint, Point
+from shapely.wkt import dumps as wkt_dumps, loads as wkt_loads
 from sklearn.cluster import DBSCAN
 
 from app import db
@@ -72,10 +72,15 @@ class HotspotAnalysisService:
             cluster_lon = cluster['centroid_lon']
             
             for hotspot in existing_hotspots:
-                # Extract centroid from PostGIS geometry
-                hotspot_geom = to_shape(hotspot.centroid)
-                hotspot_lat = hotspot_geom.y
-                hotspot_lon = hotspot_geom.x
+                # Extract centroid from WKT text or lat/lng columns
+                if hotspot.centroid and isinstance(hotspot.centroid, str):
+                    hotspot_geom = wkt_loads(hotspot.centroid)
+                    hotspot_lat = hotspot_geom.y
+                    hotspot_lon = hotspot_geom.x
+                else:
+                    # Fallback to lat/lng columns
+                    hotspot_lat = hotspot.lat
+                    hotspot_lon = hotspot.lng
                 
                 distance = self._haversine_distance(
                     cluster_lat, cluster_lon, hotspot_lat, hotspot_lon
@@ -328,12 +333,12 @@ class HotspotAnalysisService:
         return {
             'centroid_lat': float(centroid.y),
             'centroid_lon': float(centroid.x),
-            'convex_hull': boundary,
+            'convex_hull': wkt_dumps(boundary) if boundary is not None else None,
             'incident_count': len(incidents),
-            'risk_score': risk_total,
-            'volume_score': volume,
-            'severity_score': severity,
-            'recency_score': recency,
+            'risk_score': float(risk_total),
+            'volume_score': float(volume),
+            'severity_score': float(severity),
+            'recency_score': float(recency),
             'dominant_category': self._dominant_category(incidents),
         }
 
@@ -362,27 +367,37 @@ class HotspotAnalysisService:
         
         # Process matched pairs
         for cluster, hotspot, distance in matching_result['matched']:
-            hotspot.centroid = from_shape(
-                Point(cluster['centroid_lon'], cluster['centroid_lat']),
-                srid=4326
-            )
-            hotspot.convex_hull = from_shape(cluster['convex_hull'], srid=4326)
-            hotspot.incident_count = cluster['incident_count']
-            hotspot.risk_score = cluster['risk_score']
+            # Update lat/lng columns
+            hotspot.lat = float(cluster['centroid_lat'])
+            hotspot.lng = float(cluster['centroid_lon'])
+            # Store geometry as WKT strings
+            hotspot.centroid = wkt_dumps(Point(float(cluster['centroid_lon']), float(cluster['centroid_lat'])))
+            # Handle convex_hull - it might already be a WKT string or a geometry object
+            if isinstance(cluster['convex_hull'], str):
+                hotspot.convex_hull = cluster['convex_hull']
+            else:
+                hotspot.convex_hull = wkt_dumps(cluster['convex_hull']) if cluster['convex_hull'] else None
+            hotspot.incident_count = int(cluster['incident_count'])
+            hotspot.risk_score = float(cluster['risk_score'])
             hotspot.dominant_category = cluster['dominant_category']
             hotspot.updated_at = run_timestamp
             self._update_hotspot_status(hotspot, is_matched=True)
         
         # Create new hotspots for unmatched clusters
         for cluster in matching_result['unmatched_clusters']:
+            # Handle convex_hull - it might already be a WKT string or a geometry object
+            if isinstance(cluster['convex_hull'], str):
+                convex_hull_wkt = cluster['convex_hull']
+            else:
+                convex_hull_wkt = wkt_dumps(cluster['convex_hull']) if cluster['convex_hull'] else None
+            
             new_hotspot = Hotspot(
-                centroid=from_shape(
-                    Point(cluster['centroid_lon'], cluster['centroid_lat']),
-                    srid=4326
-                ),
-                convex_hull=from_shape(cluster['convex_hull'], srid=4326),
-                incident_count=cluster['incident_count'],
-                risk_score=cluster['risk_score'],
+                lat=float(cluster['centroid_lat']),
+                lng=float(cluster['centroid_lon']),
+                centroid=wkt_dumps(Point(float(cluster['centroid_lon']), float(cluster['centroid_lat']))),
+                convex_hull=convex_hull_wkt,
+                incident_count=int(cluster['incident_count']),
+                risk_score=float(cluster['risk_score']),
                 dominant_category=cluster['dominant_category'],
                 status='emerging',
                 consecutive_misses=0,
@@ -413,9 +428,13 @@ class HotspotAnalysisService:
             from sqlalchemy.types import Float
             
             # Get incidents within match radius of hotspot centroid
-            hotspot_geom = to_shape(hotspot.centroid)
-            hotspot_lat = hotspot_geom.y
-            hotspot_lon = hotspot_geom.x
+            if hotspot.centroid and isinstance(hotspot.centroid, str):
+                hotspot_geom = wkt_loads(hotspot.centroid)
+                hotspot_lat = hotspot_geom.y
+                hotspot_lon = hotspot_geom.x
+            else:
+                hotspot_lat = hotspot.lat
+                hotspot_lon = hotspot.lng
             
             # Simple distance filter for incidents (not using PostGIS ST_Distance for compatibility)
             recent_incidents = self._fetch_recent_incidents(30)
@@ -437,15 +456,20 @@ class HotspotAnalysisService:
             # Calculate component scores
             risk_total, volume, severity, recency = self._calculate_risk_score(nearby_incidents)
             
+            # Ensure centroid is stored as WKT string, not WKBElement
+            centroid_wkt = hotspot.centroid if isinstance(hotspot.centroid, str) else wkt_dumps(Point(hotspot_lon, hotspot_lat))
+            
             history_entry = HotspotHistory(
                 hotspot_id=hotspot.hotspot_id,
                 run_timestamp=run_timestamp,
-                centroid=hotspot.centroid,
-                incident_count=hotspot.incident_count,
-                risk_score=hotspot.risk_score,
-                volume_score=volume,
-                severity_score=severity,
-                recency_score=recency,
+                lat=float(hotspot_lat),
+                lng=float(hotspot_lon),
+                centroid=centroid_wkt,
+                incident_count=int(hotspot.incident_count),
+                risk_score=float(hotspot.risk_score),
+                volume_score=float(volume),
+                severity_score=float(severity),
+                recency_score=float(recency),
                 status=hotspot.status,
                 dominant_category=hotspot.dominant_category
             )

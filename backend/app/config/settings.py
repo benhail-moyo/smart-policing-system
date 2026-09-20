@@ -3,7 +3,7 @@ import os
 
 class BaseConfig:
     SECRET_KEY = os.getenv("SECRET_KEY", "dev-secret")
-    JWT_SECRET_KEY = os.getenv("JWT_SECRET_KEY", "dev-jwt-secret")
+    JWT_SECRET_KEY = os.getenv("JWT_SECRET_KEY", "dev-jwt-secret-CHANGE-IN-PRODUCTION")
     SQLALCHEMY_DATABASE_URI = os.getenv(
         "DATABASE_URL",
         "sqlite:///crime_watch.db",
@@ -14,10 +14,30 @@ class BaseConfig:
     GA_GENERATIONS = int(os.getenv("GA_GENERATIONS", "200"))
     GA_MUTATION_RATE = float(os.getenv("GA_MUTATION_RATE", "0.02"))
     GA_CROSSOVER_RATE = float(os.getenv("GA_CROSSOVER_RATE", "0.8"))
+    # Flask-Limiter configuration (stubbed/disabled by default to prevent false-positive rate limit flags)
+    RATELIMIT_ENABLED = os.getenv("RATELIMIT_ENABLED", "false").lower() in ("true", "1")
+    RATELIMIT_STORAGE_URL = os.getenv("REDIS_URL", "redis://localhost:6379")
+    RATELIMIT_STORAGE_OPTIONS = {"connect_timeout": 5}
+    RATELIMIT_DEFAULT = os.getenv("RATELIMIT_DEFAULT", "2000 per hour")
+    RATELIMIT_HEADERS_ENABLED = True
+    RATELIMIT_SWALLOW_ERRORS = True  # Don't fail if rate limiter has issues
+    RATELIMIT_STRATEGY = "fixed-window"  # More predictable than moving-window
+    # SMTP Email configuration
+    SMTP_SERVER = os.getenv("SMTP_SERVER", "smtp.gmail.com")
+    SMTP_PORT = int(os.getenv("SMTP_PORT", "587"))
+    SMTP_USERNAME = os.getenv("SMTP_USERNAME", "")
+    SMTP_PASSWORD = os.getenv("SMTP_PASSWORD", "")
+    SMTP_USE_TLS = os.getenv("SMTP_USE_TLS", "true").lower() == "true"
+    FROM_EMAIL = os.getenv("FROM_EMAIL", "")
+    FROM_NAME = os.getenv("FROM_NAME", "Smart Policing System")
+    # GeoAlchemy2 configuration for SQLite compatibility
+    SPADEQA = False
 
 
 class DevelopmentConfig(BaseConfig):
     DEBUG = True
+    # Use memory storage in development to avoid Redis dependency
+    RATELIMIT_STORAGE_URL = "memory://"
 
 
 class TestingConfig(BaseConfig):

@@ -1,0 +1,1 @@
+SELECT id, email, officer_id, role FROM "user" LIMIT 5;

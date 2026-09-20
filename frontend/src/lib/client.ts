@@ -5,7 +5,9 @@ export type Role = "community" | "officer" | "admin";
 export type AuthUser = {
   id: number;
   name: string;
-  email: string;
+  email?: string;
+  force_number?: string;
+  officer_id?: string;
   role: Role;
 };
 

@@ -45,6 +45,14 @@ type CompareResponse = {
   comparison: Comparison[];
   recommendedRouteId: string;
   routes: MapRoute[];
+  vehicle_count?: number;
+  generation_id?: string;
+  partition_metadata?: {
+    partition_sizes: number[];
+    fallback_used: boolean;
+    load_imbalance: number;
+  };
+  multi_vehicle?: boolean;
 };
 
 function PatrolInner() {
@@ -55,6 +63,8 @@ function PatrolInner() {
   const [recommended, setRecommended] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [vehicleCount, setVehicleCount] = useState(1);
+  const [partitionMetadata, setPartitionMetadata] = useState<CompareResponse["partition_metadata"] | null>(null);
 
   useEffect(() => {
     const ok = isPatrolAllowed(getStoredUser());
@@ -66,9 +76,13 @@ function PatrolInner() {
     setLoading(true);
     setError(null);
     try {
-      const res = await api<CompareResponse>("/api/patrol/compare", { method: "POST" });
+      const res = await api<CompareResponse>("/api/patrol/compare", { 
+        method: "POST",
+        body: JSON.stringify({ vehicle_count: vehicleCount })
+      });
       setComparison(res.comparison);
       setRecommended(res.recommendedRouteId);
+      setPartitionMetadata(res.partition_metadata || null);
       if (res.routes && res.routes.length > 0) {
         setRoutes(res.routes);
       }
@@ -115,6 +129,23 @@ function PatrolInner() {
           Automatically compare road-network routes through the current critical hotspots.
         </p>
 
+        <div className="mb-4">
+          <label className="mb-2 block text-sm font-medium text-slate-300">
+            Number of Vehicles
+          </label>
+          <select
+            value={vehicleCount}
+            onChange={(e) => setVehicleCount(parseInt(e.target.value))}
+            className="w-full rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-slate-100 focus:border-blue-500 focus:outline-none"
+          >
+            <option value={1}>1 Vehicle</option>
+            <option value={2}>2 Vehicles</option>
+            <option value={3}>3 Vehicles</option>
+            <option value={4}>4 Vehicles</option>
+            <option value={5}>5 Vehicles</option>
+          </select>
+        </div>
+
         <div className="mb-4 space-y-2">
           {routes.map((r) => (
             <div
@@ -126,9 +157,28 @@ function PatrolInner() {
                 style={{ background: r.color }}
               />
               {r.name}
+              {r.vehicle_id !== undefined && (
+                <span className="text-xs text-slate-500">
+                  (Vehicle {r.vehicle_id + 1})
+                </span>
+              )}
             </div>
           ))}
         </div>
+
+        {partitionMetadata && vehicleCount > 1 && (
+          <div className="mb-4 rounded-lg border border-slate-800 bg-slate-900/50 p-3 text-sm">
+            <h3 className="mb-2 font-semibold text-slate-300">Multi-Vehicle Partition Information</h3>
+            <div className="space-y-1 text-slate-400">
+              <div>Vehicle count: {vehicleCount}</div>
+              <div>Partition sizes: {partitionMetadata.partition_sizes.join(", ")}</div>
+              <div>Load imbalance: {(partitionMetadata.load_imbalance * 100).toFixed(1)}%</div>
+              {partitionMetadata.fallback_used && (
+                <div className="text-yellow-400">⚠️ Round-robin fallback used</div>
+              )}
+            </div>
+          </div>
+        )}
 
         <button
           onClick={runComparison}
@@ -195,6 +245,21 @@ function PatrolInner() {
                 />
               </tbody>
             </table>
+          </div>
+        )}
+
+        {partitionMetadata && vehicleCount > 1 && (
+          <div className="mt-4 rounded-lg border border-slate-800 bg-slate-900/50 p-3 text-sm">
+            <h3 className="mb-2 font-semibold text-slate-300">Multi-Vehicle Summary</h3>
+            <div className="space-y-1 text-slate-400">
+              <div>Total routes generated: {routes.length}</div>
+              <div>Algorithms used: {[...new Set(routes.map(r => r.algorithm))].join(", ")}</div>
+              <div>Partition sizes: {partitionMetadata.partition_sizes.join(", ")}</div>
+              <div>Load imbalance: {(partitionMetadata.load_imbalance * 100).toFixed(1)}%</div>
+              {partitionMetadata.fallback_used && (
+                <div className="text-yellow-400">⚠️ Round-robin fallback used (geographic clustering failed)</div>
+              )}
+            </div>
           </div>
         )}
 

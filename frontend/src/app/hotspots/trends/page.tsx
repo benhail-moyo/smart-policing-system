@@ -24,12 +24,14 @@ function HotspotTrendsInner() {
   const [error, setError] = useState<string | null>(null);
   const [statusFilter, setStatusFilter] = useState<string>("all");
   const [categoryFilter, setCategoryFilter] = useState<string>("all");
+  const [includeDormant, setIncludeDormant] = useState<boolean>(false);
   const user = getStoredUser();
 
   useEffect(() => {
     async function loadHotspots() {
       try {
-        const data = await api<{ hotspots: Hotspot[] }>("/api/hotspots/all");
+        const endpoint = includeDormant ? "/api/hotspots/all" : "/api/hotspots";
+        const data = await api<{ hotspots: Hotspot[] }>(endpoint);
         setHotspots(data.hotspots);
       } catch (e) {
         setError(e instanceof Error ? e.message : "Failed to load hotspots");
@@ -44,7 +46,7 @@ function HotspotTrendsInner() {
       setError("Access restricted to administrators and officers");
       setLoading(false);
     }
-  }, [user]);
+  }, [user, includeDormant]);
 
   const filteredHotspots = hotspots.filter(hotspot => {
     if (statusFilter !== "all" && hotspot.status !== statusFilter) return false;
@@ -52,7 +54,7 @@ function HotspotTrendsInner() {
     return true;
   });
 
-  const categories = Array.from(new Set(hotspots.map(h => h.dominant_category).filter(Boolean)));
+  const categories = Array.from(new Set(hotspots.map(h => h.dominant_category).filter((c): c is string => Boolean(c))));
 
   const getStatusColor = (status: string) => {
     switch (status) {
@@ -150,6 +152,18 @@ function HotspotTrendsInner() {
               <option key={cat} value={cat}>{cat}</option>
             ))}
           </select>
+        </div>
+
+        <div className="flex items-center gap-2">
+          <label className="flex items-center gap-2 text-sm text-slate-400">
+            <input
+              type="checkbox"
+              checked={includeDormant}
+              onChange={(e) => setIncludeDormant(e.target.checked)}
+              className="rounded border-slate-700 bg-slate-800 text-cyan-500 focus:ring-cyan-500"
+            />
+            Include Dormant
+          </label>
         </div>
 
         <div className="ml-auto text-sm text-slate-400">
