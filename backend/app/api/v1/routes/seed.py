@@ -107,20 +107,32 @@ def seed_database():
         admin_user = User(
             name="Benhail Moyo",
             email="benhailmoyo7@gmail.com",
+            force_number="123456X",
+            officer_id="123456X",
             role="admin",
         )
-        admin_user.set_password("Smart-policing1")
+        admin_user.set_password("Smart-policing1!")
         db.session.add(admin_user)
+    else:
+        admin_user.force_number = "123456X"
+        admin_user.officer_id = "123456X"
+        admin_user.set_password("Smart-policing1!")
 
     officer_user = db.session.query(User).filter_by(email="officer@harare.gov.zw").first()
     if not officer_user:
         officer_user = User(
             name="Officer Chikwava",
             email="officer@harare.gov.zw",
+            force_number="084512A",
+            officer_id="084512A",
             role="officer",
         )
-        officer_user.set_password("password123")
+        officer_user.set_password("Officer-2026!")
         db.session.add(officer_user)
+    else:
+        officer_user.force_number = "084512A"
+        officer_user.officer_id = "084512A"
+        officer_user.set_password("Officer-2026!")
 
     community_user = db.session.query(User).filter_by(email="community@harare.gov.zw").first()
     if not community_user:
@@ -129,8 +141,10 @@ def seed_database():
             email="community@harare.gov.zw",
             role="community",
         )
-        community_user.set_password("password123")
+        community_user.set_password("Community-2026!")
         db.session.add(community_user)
+    else:
+        community_user.set_password("Community-2026!")
 
     db.session.commit()
 
@@ -175,8 +189,8 @@ def seed_database():
         "incidents": total_incidents,
         "hotspots": analysis["hotspots_generated"],
         "demoAccounts": [
-            { "role": "officer", "email": "officer@harare.gov.zw", "password": "password123" },
-            { "role": "admin", "email": "benhailmoyo7@gmail.com", "password": "Smart-policing1" },
-            { "role": "community", "email": "community@harare.gov.zw", "password": "password123" },
+            { "role": "officer", "force_number": "084512A", "email": "officer@harare.gov.zw", "password": "Officer-2026!" },
+            { "role": "admin", "force_number": "123456X", "email": "benhailmoyo7@gmail.com", "password": "Smart-policing1!" },
+            { "role": "community", "email": "community@harare.gov.zw", "password": "Community-2026!" },
         ],
     }), 200
