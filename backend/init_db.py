@@ -25,6 +25,7 @@ def apply_compatibility_migrations():
         user_sql_name = '"user"' if 'postgresql' in db_url else 'user'
         user_columns = {column["name"] for column in inspect(db.engine).get_columns("user")}
         security_columns = {
+            'force_number': 'VARCHAR(50)',
             'officer_id': 'VARCHAR(50)',
             'totp_secret': 'VARCHAR(64)',
             'totp_enabled': 'BOOLEAN DEFAULT FALSE',
@@ -77,7 +78,7 @@ def apply_compatibility_migrations():
                         vehicle_id INTEGER,
                         generation_id VARCHAR(36),
                         created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-                        CONSTRAINT valid_event_type CHECK (event_type IN ('LOGIN_SUCCESS','LOGIN_FAILED','MFA_FAILED','LOCKOUT','ROLE_CHANGE','TOKEN_REFRESH','LOGOUT','ROUTE_OVERRIDE','ENTITY_UPDATE'))
+                        CONSTRAINT valid_event_type CHECK (event_type IN ('LOGIN_SUCCESS','LOGIN_FAILED','MFA_FAILED','LOCKOUT','ROLE_CHANGE','TOKEN_REFRESH','LOGOUT','ROUTE_OVERRIDE','ENTITY_UPDATE','OTP_SENT','OTP_FAILED','EMAIL_VERIFIED','VERIFICATION_EMAIL_SENT'))
                     )
                 """))
             else:
@@ -100,7 +101,7 @@ def apply_compatibility_migrations():
                         vehicle_id INTEGER,
                         generation_id VARCHAR(36),
                         created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-                        CHECK (event_type IN ('LOGIN_SUCCESS','LOGIN_FAILED','MFA_FAILED','LOCKOUT','ROLE_CHANGE','TOKEN_REFRESH','LOGOUT','ROUTE_OVERRIDE','ENTITY_UPDATE'))
+                        CHECK (event_type IN ('LOGIN_SUCCESS','LOGIN_FAILED','MFA_FAILED','LOCKOUT','ROLE_CHANGE','TOKEN_REFRESH','LOGOUT','ROUTE_OVERRIDE','ENTITY_UPDATE','OTP_SENT','OTP_FAILED','EMAIL_VERIFIED','VERIFICATION_EMAIL_SENT'))
                     )
                 """))
             db.session.commit()
