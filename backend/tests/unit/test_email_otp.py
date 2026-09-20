@@ -137,6 +137,8 @@ def test_officer_login_2fa_flow(client, monkeypatch):
     user = User(
         name='Officer Danai',
         email='officer_danai@harare.gov.zw',
+        force_number='084512A',
+        officer_id='084512A',
         role='officer'
     )
     user.set_password('securepassword123')
@@ -145,7 +147,7 @@ def test_officer_login_2fa_flow(client, monkeypatch):
 
     with patch('app.services.email_service.email_service.send_otp_email', return_value=True):
         res1 = client.post('/api/v1/auth/login', json={
-            'email': 'officer_danai@harare.gov.zw',
+            'force_number': '084512A',
             'password': 'securepassword123'
         })
         assert res1.status_code == 200
@@ -156,14 +158,14 @@ def test_officer_login_2fa_flow(client, monkeypatch):
         assert otp is not None
 
         res2_fail = client.post('/api/v1/auth/login', json={
-            'email': 'officer_danai@harare.gov.zw',
+            'force_number': '084512A',
             'password': 'securepassword123',
             'otp_code': '999999'
         })
         assert res2_fail.status_code == 401
 
         res2_pass = client.post('/api/v1/auth/login', json={
-            'email': 'officer_danai@harare.gov.zw',
+            'force_number': '084512A',
             'password': 'securepassword123',
             'otp_code': otp.code
         })
