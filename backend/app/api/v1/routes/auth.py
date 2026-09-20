@@ -5,14 +5,12 @@ Clean, working authentication implementation
 """
 from datetime import datetime, timedelta, timezone
 from flask import Blueprint, jsonify, request, g
-from flask_limiter import Limiter
-from flask_limiter.util import get_remote_address
 from flask_jwt_extended import create_access_token, create_refresh_token, get_jwt_identity, decode_token as fjwt_decode
 from jwt.exceptions import ExpiredSignatureError, InvalidTokenError
 
 from app import db, limiter
 from app.models.models import User, RefreshToken
-from app.security.passwords import verify_password
+from app.security.passwords import verify_password, validate_password_strength, validate_force_number
 from app.security.totp import verify_totp, generate_totp_secret, get_provisioning_qr_base64
 from app.security.audit import write_audit_event
 from app.security.decorators import login_required, role_required
@@ -26,38 +24,82 @@ def refresh_token_hash(token: str) -> str:
     import hashlib
     return hashlib.sha256(token.encode()).hexdigest()
 
+
+def mask_email(email: str) -> str:
+    """Mask email for secure display (e.g. j***e@domain.com)."""
+    if not email or "@" not in email:
+        return "your registered email"
+    user_part, domain = email.split("@", 1)
+    if len(user_part) <= 2:
+        masked_user = user_part[0] + "***"
+    else:
+        masked_user = user_part[0] + "***" + user_part[-1]
+    return f"{masked_user}@{domain}"
+
+
 auth_bp = Blueprint("auth", __name__)
 
 
 @auth_bp.post("/register")
 def register():
-    """Community self-registration only - role is hardcoded to 'community'."""
+    """Registration endpoint for Community Members and Police Officers."""
     try:
         data = request.get_json(silent=True) or {}
         name = (data.get("name") or "").strip()
         email = (data.get("email") or "").strip().lower()
         password = data.get("password") or ""
+        role = (data.get("role") or "community").strip().lower()
+        raw_force_number = data.get("force_number") or data.get("officer_id") or ""
+        clean_fn = raw_force_number.strip().upper() if raw_force_number else None
+
+        if role not in ("community", "officer"):
+            return jsonify({"error": "Invalid role specified"}), 400
 
         if not email or not password:
             return jsonify({"error": "Email and password are required"}), 400
 
-        if len(password) < 8:
-            return jsonify({"error": "Password must be at least 8 characters"}), 400
+        if role == "officer":
+            if not clean_fn:
+                return jsonify({"error": "Force Number is required for police officers"}), 400
+            fn_valid, fn_err = validate_force_number(clean_fn)
+            if not fn_valid:
+                return jsonify({"error": fn_err}), 400
 
-        existing = db.session.query(User).filter_by(email=email).first()
-        if existing:
+        # Validate password strength with organizational 5-rule policy
+        user_ctx = {
+            "name": name,
+            "email": email,
+            "force_number": clean_fn if role == "officer" else None
+        }
+        pw_valid, pw_errors = validate_password_strength(password, user_ctx)
+        if not pw_valid:
+            return jsonify({"error": pw_errors[0], "details": pw_errors}), 400
+
+        # Check existing email
+        existing_email = db.session.query(User).filter_by(email=email).first()
+        if existing_email:
             return jsonify({"error": "Email already registered"}), 409
 
+        # Check existing force number if registering as officer
+        if role == "officer" and clean_fn:
+            existing_fn = db.session.query(User).filter(
+                (User.force_number == clean_fn) | (User.officer_id == clean_fn)
+            ).first()
+            if existing_fn:
+                return jsonify({"error": "Force Number already registered"}), 409
+
         user = User(
-            name=name or email.split("@")[0],
+            name=name or (email.split("@")[0] if role == "community" else clean_fn),
             email=email,
-            role="community",  # hardcoded - no privilege escalation
+            force_number=clean_fn if role == "officer" else None,
+            officer_id=clean_fn if role == "officer" else None,
+            role=role,
         )
         user.set_password(password)
         db.session.add(user)
         db.session.commit()
 
-        write_audit_event(user.id, "ROLE_CHANGE", metadata={"action": "registration"})
+        write_audit_event(user.id, "ROLE_CHANGE", metadata={"action": "registration", "role": role})
 
         return jsonify({
             "message": "User registered successfully",
@@ -79,17 +121,14 @@ def verify_email():
         if not email or not otp_code:
             return jsonify({"error": "Email and OTP code are required"}), 400
 
-        # Find user by email
         user = db.session.query(User).filter_by(email=email).first()
         if not user:
             return jsonify({"error": "User not found"}), 404
 
-        # Verify OTP
         is_valid, error_msg = otp_service.verify_otp(user.id, otp_code)
         if not is_valid:
             return jsonify({"error": error_msg or "Invalid OTP code"}), 401
 
-        # Mark email as verified (you could add an email_verified field to User model)
         write_audit_event(user.id, "EMAIL_VERIFIED")
 
         return jsonify({
@@ -112,12 +151,10 @@ def send_verification_email():
         if not email:
             return jsonify({"error": "Email is required"}), 400
 
-        # Find user by email
         user = db.session.query(User).filter_by(email=email).first()
         if not user:
             return jsonify({"error": "User not found"}), 404
 
-        # Generate and send OTP
         success_msg, error_msg = otp_service.generate_otp(user.id)
         if error_msg:
             return jsonify({"error": f"Failed to send verification email: {error_msg}"}), 500
@@ -136,37 +173,81 @@ def send_verification_email():
 @auth_bp.post("/login")
 @limiter.limit("10 per minute", error_message="Too many login attempts. Please try again later.")
 def login():
-    """Login with rate limiting, account lockout, and MFA support."""
+    """
+    Login endpoint:
+    - Police Officers & Admins: MUST log in with Force Number (format: 123456X) + password.
+      Triggers SMTP OTP verification code sent to the email tied to their account.
+    - Community Members: Log in with Email + password (direct sign in, no 2FA).
+    """
     try:
         data = request.get_json(silent=True) or {}
-        # Support both "identifier" (new) and "email" (legacy) for backward compatibility
-        identifier = data.get("identifier") or data.get("email")  # email OR officer_id
+        raw_force_number = data.get("force_number")
+        raw_email = data.get("email")
+        raw_identifier = data.get("identifier")
         password = data.get("password")
-        totp_code = data.get("totp_code")  # optional unless role requires it
-        otp_code = data.get("otp_code")  # email OTP for officers/admins
+        otp_code = (data.get("otp_code") or "").strip()
+        totp_code = (data.get("totp_code") or "").strip()
 
-        if not identifier or not password:
-            return jsonify({"error": "Email/identifier and password are required"}), 400
+        if not password:
+            return jsonify({"error": "Password is required"}), 400
 
-        user = User.query.filter(
-            (User.email == identifier) | (User.officer_id == identifier)
-        ).first()
+        is_force_number_attempt = False
+        target_fn = None
+        target_email = None
 
-        # Uniform failure path — do not reveal whether identifier, password, or MFA failed
-        def reject(event_type):
+        if raw_force_number:
+            is_force_number_attempt = True
+            target_fn = str(raw_force_number).strip().upper()
+        elif raw_identifier and "@" not in str(raw_identifier):
+            is_force_number_attempt = True
+            target_fn = str(raw_identifier).strip().upper()
+        elif raw_email:
+            target_email = str(raw_email).strip().lower()
+        elif raw_identifier and "@" in str(raw_identifier):
+            target_email = str(raw_identifier).strip().lower()
+        else:
+            return jsonify({"error": "Force Number or Email is required"}), 400
+
+        user = None
+
+        if is_force_number_attempt:
+            fn_valid, fn_err = validate_force_number(target_fn)
+            if not fn_valid:
+                return jsonify({"error": fn_err}), 400
+
+            user = User.query.filter(
+                (User.force_number == target_fn) | (User.officer_id == target_fn)
+            ).first()
+        else:
+            user = User.query.filter_by(email=target_email).first()
+
+        def reject(event_type, custom_msg=None):
             write_audit_event(user.id if user else None, event_type)
-            return jsonify({"error": "Invalid credentials"}), 401
+            return jsonify({"error": custom_msg or "Invalid credentials"}), 401
 
         if user is None:
             return reject("LOGIN_FAILED")
 
+        # Role enforcement for login method
+        if is_force_number_attempt and user.role == "community":
+            return jsonify({
+                "error": "This account is registered as a community member. Please sign in using your email address."
+            }), 400
+
+        if not is_force_number_attempt and user.role in ("officer", "admin"):
+            return jsonify({
+                "error": "Police officers and administrators must log in with their Force Number (e.g. 123456X)."
+            }), 400
+
+        # Account lockout check
         if user.locked_until:
             locked_until = user.locked_until
             if locked_until.tzinfo is None:
                 locked_until = locked_until.replace(tzinfo=timezone.utc)
             if locked_until > datetime.now(timezone.utc):
-                return reject("LOCKOUT")
+                return reject("LOCKOUT", "Account temporarily locked due to multiple failed attempts. Please try again later.")
 
+        # Verify password
         if not verify_password(user.password_hash, password):
             user.failed_login_count += 1
             if user.failed_login_count >= 5:
@@ -174,47 +255,48 @@ def login():
             db.session.commit()
             return reject("LOGIN_FAILED")
 
-        # For officers and admins, require email OTP
-        if user.role in ['officer', 'admin']:
-            # If OTP code provided, verify it
+        # --- 2FA OTP for Officers & Admins ---
+        if user.role in ("officer", "admin"):
+            if not user.email:
+                return jsonify({
+                    "error": "No email address is associated with this Force Number. Please contact your system administrator."
+                }), 500
+
+            # If OTP code submitted, verify it
             if otp_code:
                 is_valid, error_msg = otp_service.verify_otp(user.id, otp_code)
                 if not is_valid:
                     write_audit_event(user.id, "OTP_FAILED")
-                    return jsonify({"error": error_msg or "Invalid OTP code"}), 401
+                    return jsonify({"error": error_msg or "Invalid verification code"}), 401
                 
-                # OTP verified, proceed with login
+                # OTP verified -> complete login
                 return _complete_login(user)
             else:
-                # Generate and send OTP
+                # Generate and send SMTP OTP to user's registered email
                 success_msg, error_msg = otp_service.generate_otp(user.id)
                 if error_msg:
-                    # If email service fails, fall back to TOTP if enabled
+                    # If email service fails, fall back to TOTP if user has enrolled TOTP
                     if user.totp_enabled:
                         if not totp_code or not verify_totp(user.totp_secret, totp_code):
                             return reject("MFA_FAILED")
                         return _complete_login(user)
                     else:
-                        return jsonify({"error": f"Failed to send OTP: {error_msg}"}), 500
-                
-                # Return OTP required response
+                        return jsonify({"error": f"Failed to send verification code: {error_msg}"}), 500
+
                 write_audit_event(user.id, "OTP_SENT")
+                masked = mask_email(user.email)
                 return jsonify({
-                    "message": success_msg,
                     "requires_otp": True,
+                    "message": f"A 6-digit verification code has been sent to {masked}",
+                    "masked_email": masked,
                     "user_id": user.id,
-                    "role": user.role
+                    "force_number": user.force_number or user.officer_id,
+                    "role": user.role,
                 }), 200
 
-        # For community users or TOTP fallback
-        # MFA check — only enforce when the user has actually enrolled TOTP
-        if user.totp_enabled:
-            if not totp_code or not verify_totp(user.totp_secret, totp_code):
-                return reject("MFA_FAILED")
-
-        # Complete login for non-officer/admin users or TOTP users
+        # --- Community Members (Direct Sign-in, no 2FA) ---
         return _complete_login(user)
-        
+
     except Exception as e:
         db.session.rollback()
         return jsonify({"error": f"Login failed: {str(e)}"}), 500
