@@ -32,6 +32,13 @@ services:
       - FLASK_APP=wsgi.py
       - GEMINI_API_KEY=${GEMINI_API_KEY:-}
       - JWT_SECRET_KEY=6de0d2b3426b72a7d6ab91f3988f92af34014a9783008ec07efb70faef8100bf
+      - SMTP_SERVER=${SMTP_SERVER:-smtp.gmail.com}
+      - SMTP_PORT=${SMTP_PORT:-587}
+      - SMTP_USERNAME=${SMTP_USERNAME:-}
+      - SMTP_PASSWORD=${SMTP_PASSWORD:-}
+      - SMTP_USE_TLS=${SMTP_USE_TLS:-true}
+      - FROM_EMAIL=${FROM_EMAIL:-}
+      - FROM_NAME=${FROM_NAME:-Smart Policing System}
     command: sh -c "python init_db.py && flask run --host=0.0.0.0 --port=5000"
     ports:
       - "5000:5000"
@@ -58,6 +65,12 @@ services:
       - /usr/src/app/.next
     depends_on:
       - backend
+    networks:
+      - crime-watch-network
 
 volumes:
   crime_watch_pgdata:
+
+networks:
+  crime-watch-network:
+    driver: bridge
